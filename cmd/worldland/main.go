@@ -296,6 +296,9 @@ func prepare(ctx *cli.Context) {
 	case ctx.IsSet(utils.GwangjuFlag.Name):
 		log.Info("Starting Worldland on Gwangju testnet ...")
 
+	case ctx.IsSet(utils.MioFlag.Name):
+		log.Info("Starting Worldland on Mio testnet ...")
+
 	case ctx.IsSet(utils.DeveloperFlag.Name):
 		log.Info("Starting Worldland in ephemeral dev mode...")
 		log.Warn(`You are running Worldland in --dev mode. Please note the following:
@@ -313,7 +316,7 @@ func prepare(ctx *cli.Context) {
   5. Networking is disabled; there is no listen-address, the maximum number of peers is set
      to 0, and discovery is disabled.
 `)
-		
+
 	case !ctx.IsSet(utils.NetworkIdFlag.Name):
 		log.Info("Starting clinet on Worldland Seoul mainnet...")
 		ctx.Set(utils.SeoulFlag.Name, strconv.FormatBool(true))
@@ -321,13 +324,14 @@ func prepare(ctx *cli.Context) {
 	// If we're a full node on mainnet without --cache specified, bump default cache allowance
 	if ctx.String(utils.SyncModeFlag.Name) != "light" && !ctx.IsSet(utils.CacheFlag.Name) && !ctx.IsSet(utils.NetworkIdFlag.Name) {
 		// Make sure we're not on any supported preconfigured testnet either
-		if  !ctx.IsSet(utils.RopstenFlag.Name) &&
+		if !ctx.IsSet(utils.RopstenFlag.Name) &&
 			!ctx.IsSet(utils.SepoliaFlag.Name) &&
 			!ctx.IsSet(utils.RinkebyFlag.Name) &&
 			!ctx.IsSet(utils.GoerliFlag.Name) &&
 			!ctx.IsSet(utils.KilnFlag.Name) &&
 			!ctx.IsSet(utils.SeoulFlag.Name) &&
 			!ctx.IsSet(utils.GwangjuFlag.Name) &&
+			!ctx.IsSet(utils.MioFlag.Name) &&
 			!ctx.IsSet(utils.DeveloperFlag.Name) {
 			// Nope, we're really on mainnet. Bump that cache up!
 			log.Info("Bumping default cache on mainnet", "provided", ctx.Int(utils.CacheFlag.Name), "updated", 4096)

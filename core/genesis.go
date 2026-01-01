@@ -628,6 +628,23 @@ func DefaultGwangjuGenesisBlock() *Genesis {
 	}
 }
 
+func DefaultMioGenesisBlock() *Genesis {
+	balanceStr := "40996800000000000000000000"
+	balance, _ := new(big.Int).SetString(balanceStr, 10)
+	return &Genesis{
+		Config:     params.MioChainConfig,
+		Nonce:      10396,
+		Timestamp:  1767262724,
+		ExtraData:  []byte("Worldland Mio"),
+		GasLimit:   30000000,
+		Difficulty: big.NewInt(1023),
+		Alloc:      map[common.Address]GenesisAccount{
+			common.HexToAddress("0x8C98EAeA19F1B9B36af58e7d7E78e0F1df8138f0"): { Balance: balance },
+		},
+	}
+}
+
+
 // DeveloperGenesisBlock returns the 'geth --dev' genesis block.
 func DeveloperGenesisBlock(period uint64, gasLimit uint64, faucet common.Address) *Genesis {
 	// Override the default period to the user requested one
