@@ -138,6 +138,8 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 	ethashConfig.NotifyFull = config.Miner.NotifyFull
 
 	eccpowConfig := config.Eccpow
+
+	kaijuConfig := config.Kaiju
 	/*
 	eccpowConfig, err := core.LoadEccpowConfig(chainDb, config.Genesis)
 	if err != nil {
@@ -150,7 +152,7 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 	}
 	
 	//engine := ethconfig.CreateConsensusEngine(stack, &ethashConfig, cliqueConfig, eccpowConfig, config.Miner.Notify, config.Miner.Noverify, chainDb)
-	engine := ethconfig.CreateConsensusEngine(stack, &ethashConfig, cliqueConfig, &eccpowConfig, config.Miner.Notify, config.Miner.Noverify, chainDb)
+	engine := ethconfig.CreateConsensusEngine(stack, &ethashConfig, cliqueConfig, &eccpowConfig, &kaijuConfig ,config.Miner.Notify, config.Miner.Noverify, chainDb)
 
 
 	eth := &Ethereum{

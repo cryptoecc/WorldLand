@@ -1,4 +1,4 @@
-package vct
+package kaiju
 
 import (
 	"bytes"

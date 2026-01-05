@@ -1111,9 +1111,8 @@ func setBootstrapNodes(ctx *cli.Context, cfg *p2p.Config) {
 	case ctx.Bool(MioFlag.Name):
 		urls = params.MioBootnodes
 
-
 	}
-	
+
 	// don't apply defaults if BootstrapNodes is already set
 	if cfg.BootstrapNodes != nil {
 		return
@@ -2257,7 +2256,12 @@ func MakeChain(ctx *cli.Context, stack *node.Node) (*core.BlockChain, ethdb.Data
 		ethashConfig.PowMode = ethash.ModeFake
 	}
 
-	engine := ethconfig.CreateConsensusEngine(stack, &ethashConfig, cliqueConfig, &eccpowConfig, nil, false, chainDb)
+	kaijuConfig := ethconfig.Defaults.Kaiju
+	if ctx.Bool(FakePoWFlag.Name) {
+		ethashConfig.PowMode = ethash.ModeFake
+	}
+
+	engine := ethconfig.CreateConsensusEngine(stack, &ethashConfig, cliqueConfig, &eccpowConfig, &kaijuConfig, nil, false, chainDb)
 	if gcmode := ctx.String(GCModeFlag.Name); gcmode != "full" && gcmode != "archive" {
 		Fatalf("--%s must be either 'full' or 'archive'", GCModeFlag.Name)
 	}
