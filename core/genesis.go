@@ -440,6 +440,8 @@ func (g *Genesis) configOrDefault(ghash common.Hash) *params.ChainConfig {
 		return params.SeoulChainConfig
 	case ghash == params.GwangjuGenesisHash:
 		return params.GwangjuChainConfig
+	case ghash == params.MioGenesisHash:
+		return params.MioChainConfig
 	default:
 		return params.AllEthashProtocolChanges
 	}

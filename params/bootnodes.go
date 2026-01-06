@@ -99,7 +99,9 @@ var GwangjuBootnodes = []string{
 
 // Mio Bootnodes are the enode URLs of the P2P bootstrap nodes running on the
 // Mio network.
-var MioBootnodes = []string{}
+var MioBootnodes = []string{
+	"enode://a7ce7263293907cd317a24ba912bdd1302656d4c7e51260ea67ae159658214ea34a74dfbab647cd199a26b116a2c10be5c8ccbfb267d17449f74f088470e47a9@3.34.200.40:30303",
+}
 
 // GoerliBootnodes are the enode URLs of the P2P bootstrap nodes running on the
 // Görli test network.
