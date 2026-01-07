@@ -359,7 +359,7 @@ var (
 		AnnapurnaBlock:      big.NewInt(0),
 		MioBlock:            big.NewInt(0),
 		HalvingEndTime:      big.NewInt(25228800),
-		Kaiju:              new(KaijuConfig),
+		Kaiju:               new(KaijuConfig),
 	}
 
 	/* SeoulTrustedCheckpoint contains the light client trusted checkpoint for the Gwangju test network.
@@ -458,7 +458,6 @@ var NetworkNames = map[string]string{
 	SeoulChainConfig.ChainID.String():   "seoul",
 	GwangjuChainConfig.ChainID.String(): "gwangju",
 	MioChainConfig.ChainID.String(): "mio",
-
 }
 
 // TrustedCheckpoint represents a set of post-processed trie roots (CHT and
@@ -562,7 +561,7 @@ type ChainConfig struct {
 	Clique *CliqueConfig `json:"clique,omitempty"`
 	Eccpow *EccpowConfig `json:"eccpow,omitempty"`
 	Kaiju *KaijuConfig `json:"kaiju,omitempty"`
-
+	
 }
 
 // EthashConfig is the consensus engine configs for proof-of-work based sealing.
@@ -634,6 +633,14 @@ func (c *ChainConfig) String() string {
 			banner += "Consensus: Beacon (proof-of-stake), merging from Eccpow (proof-of-work)\n"
 		} else {
 			banner += "Consensus: Beacon (proof-of-stake), merged from Eccpow (proof-of-work)\n"
+		}
+	case c.Kaiju != nil:
+		if c.TerminalTotalDifficulty == nil {
+			banner += "Consensus: Kaiju (proof-of-work with VRF sortition)\n"
+		} else if !c.TerminalTotalDifficultyPassed {
+			banner += "Consensus: Kaiju (proof-of-work with VRF sortition)\n"
+		} else {
+			banner += "Consensus: Kaiju (proof-of-work with VRF sortition)\n"
 		}
 	default:
 		banner += "Consensus: unknown\n"

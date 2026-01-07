@@ -38,6 +38,10 @@ type ECC struct {
 	fakeFail  uint64        // Block number which fails PoW check even in fake mode
 	fakeDelay time.Duration // Time delay to sleep for before returning from verify
 
+	// VRF key pair for proof generation and verification
+	vrfPublicKey  []byte // ED25519 public key (32 bytes)
+	vrfPrivateKey []byte // ED25519 private key (64 bytes)
+
 	lock      sync.Mutex // Ensures thread safety for the in-memory caches and mining fields
 	closeOnce sync.Once  // Ensures exit channel will not be closed twice.
 }
@@ -432,6 +436,20 @@ func (ecc *ECC) SetThreads(threads int) {
 	}
 }
 
+// SetVRFKeys sets the VRF key pair used for proof generation
+// The publicKey should be 32 bytes (ED25519 public key)
+// The privateKey should be 64 bytes (ED25519 private key)
+func (ecc *ECC) SetVRFKeys(publicKey, privateKey []byte) {
+	ecc.lock.Lock()
+	defer ecc.lock.Unlock()
+
+	ecc.vrfPublicKey = make([]byte, len(publicKey))
+	copy(ecc.vrfPublicKey, publicKey)
+
+	ecc.vrfPrivateKey = make([]byte, len(privateKey))
+	copy(ecc.vrfPrivateKey, privateKey)
+}
+
 // Hashrate implements PoW, returning the measured rate of the search invocations
 // per second over the last minute.
 // Note the returned hashrate includes local hashrate, but also includes the total
@@ -512,8 +530,8 @@ func seedHash(block uint64) []byte {
 	return seed
 }
 
-//// SeedHash is the seed to use for generating a verification cache and the mining
-//// dataset.
+// // SeedHash is the seed to use for generating a verification cache and the mining
+// // dataset.
 func SeedHash(block uint64) []byte {
 	return seedHash(block)
 }

@@ -21,6 +21,7 @@ import (
 	"context"
 	crand "crypto/rand"
 	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"math"
@@ -95,13 +96,15 @@ func (ecc *ECC) Seal(chain consensus.ChainHeaderReader, block *types.Block, resu
 		pend   sync.WaitGroup
 		locals = make(chan *types.Block)
 	)
-	
+
 	for i := 0; i < threads; i++ {
 		pend.Add(1)
 		go func(id int, nonce uint64) {
 			defer pend.Done()
 			//ecc.mine(block, id, nonce, abort, locals)
-			if chain.Config().IsSeoul(block.Header().Number){
+			if chain.Config().IsMio(block.Header().Number){
+				ecc.mine_mio(block, id, nonce, abort, locals)
+			} else if chain.Config().IsSeoul(block.Header().Number){
 				ecc.mine_seoul(block, id, nonce, abort, locals)
 			} else{
 				ecc.mine(block, id, nonce, abort, locals)
@@ -187,7 +190,7 @@ search:
 				header = types.CopyHeader(header)
 				header.MixDigest = common.BytesToHash(digest)
 				header.Nonce = types.EncodeNonce(LDPCNonce)
-				
+
 				//convert codeword
 				var codeword []byte
 				var codeVal byte
@@ -206,14 +209,14 @@ search:
 				//fmt.Printf("header: %v\n", header)
 				//fmt.Printf("header Codeword : %v\n", header.Codeword)
 
-				// Seal and return a block (if still needed)
-				select {
-				case found <- block.WithSeal(header):
-					logger.Trace("ecc nonce found and reported", "LDPCNonce", LDPCNonce)
-				case <-abort:
-					logger.Trace("ecc nonce found but discarded", "LDPCNonce", LDPCNonce)
-				}
-				break search
+					// Seal and return a block (if still needed)
+					select {
+					case found <- block.WithSeal(header):
+						logger.Trace("ecc nonce found and reported", "LDPCNonce", LDPCNonce)
+					case <-abort:
+						logger.Trace("ecc nonce found but discarded", "LDPCNonce", LDPCNonce)
+					}
+					break search
 			}
 		}
 	}
@@ -312,6 +315,152 @@ search:
 					logger.Trace("ecc nonce found but discarded", "LDPCNonce", nonce)
 				}
 				break search
+			}
+			nonce++
+		}
+	}
+}
+
+func (ecc *ECC) mine_mio(block *types.Block, id int, seed uint64, abort chan struct{}, found chan *types.Block) {
+	// Extract some data from the header
+	var (
+		header = block.Header()
+		hash   = ecc.SealHash(header).Bytes()
+	)
+	// Start generating random nonces until we abort or find a good one
+	var (
+		total_attempts = int64(0)
+		attempts = int64(0)
+		nonce    = seed
+	)
+	logger := log.New("miner", id)
+	logger.Trace("Started ecc search for new nonces", "seed", seed)
+
+	parameters, _ := setParameters_Seoul(header)
+	//fmt.Println(parameters)
+	H := generateH(parameters)
+	colInRow, rowInCol := generateQ(parameters, H)
+
+search:
+	for {
+		select {
+		case <-abort:
+			// Mining terminated, update stats and abort
+			logger.Trace("ecc nonce search aborted", "attempts", nonce-seed)
+			ecc.hashrate.Mark(attempts)
+			break search
+
+		default:
+			// We don't have to update hash rate on every nonce, so update after after 2^X nonces
+			total_attempts = total_attempts + 1
+			attempts = attempts + 1
+			if (attempts % (1 << 15)) == 0 {
+				ecc.hashrate.Mark(attempts)
+				attempts = 0
+			}
+
+			digest := make([]byte, 40)
+			copy(digest, hash)
+			binary.LittleEndian.PutUint64(digest[32:], nonce)
+			digest = crypto.Keccak512(digest)
+			//fmt.Printf("nonce: %v\n", digest)
+
+			goRoutineHashVector := generateHv(parameters, digest)
+			goRoutineHashVector, goRoutineOutputWord, _ := OptimizedDecodingSeoul(parameters, goRoutineHashVector, H, rowInCol, colInRow)
+
+			flag, _ := MakeDecision_Seoul(header, colInRow, goRoutineOutputWord)
+			//fmt.Printf("nonce: %v\n", nonce)
+			//fmt.Printf("nonce: %v\n", weight)
+
+			if flag == true {
+				//hashVector := goRoutineHashVector
+				outputWord := goRoutineOutputWord
+
+				//level := SearchLevel_Seoul(header.Difficulty)
+				/*fmt.Printf("level: %v\n", level)
+				fmt.Printf("total attempts: %v\n", total_attempts)
+				fmt.Printf("hashrate: %v\n", ecc.Hashrate())
+				fmt.Printf("Codeword found with nonce = %d\n", nonce)
+				fmt.Printf("Codeword : %d\n", outputWord)*/
+
+				header = types.CopyHeader(header)
+				header.CodeLength = uint64(parameters.n)
+				header.MixDigest = common.BytesToHash(digest)
+				header.Nonce = types.EncodeNonce(nonce)
+
+				//convert codeword
+				var codeword []byte
+				var codeVal byte
+				for i, v := range outputWord {
+					codeVal |= byte(v) << (7 - i%8)
+					if i%8 == 7 {
+						codeword = append(codeword, codeVal)
+						codeVal = 0
+					}
+				}
+				if len(outputWord)%8 != 0 {
+					codeword = append(codeword, codeVal)
+				}
+				header.Codeword = make([]byte, len(codeword))
+				copy(header.Codeword, codeword)
+				//fmt.Printf("header: %v\n", header)
+				//fmt.Printf("header Codeword : %v\n", header.Codeword)
+
+				// Generate VRF proof using the block hash before sealing
+				ecc.lock.Lock()
+				vrfGenerated := false
+				if len(ecc.vrfPrivateKey) > 0 && len(ecc.vrfPublicKey) > 0 {
+					// Use the seal hash WITH the current nonce as the message
+					// This ensures each nonce attempt produces a different VRF proof
+					message := ecc.SealHash(header).Bytes()
+					vrfProof, hash, err := Prove(ecc.vrfPublicKey, ecc.vrfPrivateKey, message)
+					if err == nil {
+						// Check if this VRF proof passes sortition
+						randomNumber := hex.EncodeToString(hash)
+						passedSortition := CheckSortition(vrfProof)
+
+						logger.Info("🎲 VRF proof generated [mine_seoul]",
+							"block", header.Number,
+							"nonce", nonce,
+							"randomNumber", randomNumber[:8]+"...",
+							"firstChar", string(randomNumber[0]),
+							"sortition", passedSortition)
+
+						if passedSortition {
+							header.VRFProof = vrfProof
+							header.VRFPublicKey = ecc.vrfPublicKey
+							vrfGenerated = true
+							logger.Info("✅ Sortition PASSED! Sealing block [mine_seoul]", "block", header.Number, "nonce", nonce)
+						} else {
+							// VRF proof generated but failed sortition - continue mining
+							logger.Debug("❌ Sortition failed, continuing search... [mine_seoul]", "nonce", nonce)
+							ecc.lock.Unlock()
+							nonce++
+							continue
+						}
+					} else {
+						logger.Warn("Failed to generate VRF proof", "err", err)
+						ecc.lock.Unlock()
+						nonce++
+						continue
+					}
+				} else {
+					// No VRF keys configured, allow mining without VRF
+					vrfGenerated = true
+				}
+				ecc.lock.Unlock()
+
+				// Only seal the block if VRF was successfully generated and passed sortition
+				if vrfGenerated {
+					// Seal and return a block (if still needed)
+					select {
+					case found <- block.WithSeal(header):
+						logger.Trace("ecc nonce found and reported", "LDPCNonce", nonce)
+					case <-abort:
+						logger.Trace("ecc nonce found but discarded", "LDPCNonce", nonce)
+					}
+					break search
+				}
 			}
 			nonce++
 		}

@@ -300,6 +300,10 @@ func (ecc *ECC) verifyHeader(chain consensus.ChainHeaderReader, header, parent *
 			return err
 		}
 	}
+	// Verify VRF proof if present
+	if err := ecc.verifyVRFProof(header); err != nil {
+		return err
+	}
 	// If all checks passed, validate any special fields for hard forks
 	if err := misc.VerifyDAOHeaderExtraData(chain.Config(), header); err != nil {
 		return err
@@ -326,7 +330,7 @@ func (ecc *ECC) CalcDifficulty(chain consensus.ChainHeaderReader, time uint64, p
 		//fmt.Println("frontier")
 		return calcDifficultyFrontier(time, parent)
 	}
-	
+
 	//return CalcDifficulty(chain.Config(), time, parent)
 }
 
@@ -416,7 +420,7 @@ func (ecc *ECC) verifySeal(chain consensus.ChainHeaderReader, header *types.Head
 	} else{
 		flag, _, _, digest = VerifyOptimizedDecoding(header, ecc.SealHash(header).Bytes())
 	}
-	
+
 	encodedDigest := common.BytesToHash(digest)
 	if !bytes.Equal(header.MixDigest[:], encodedDigest[:]) {
 		return errInvalidMixDigest
@@ -424,6 +428,37 @@ func (ecc *ECC) verifySeal(chain consensus.ChainHeaderReader, header *types.Head
 
 	if flag == false {
 		return errInvalidPoW
+	}
+
+	return nil
+}
+
+// verifyVRFProof checks whether the VRF proof in the header is valid
+func (ecc *ECC) verifyVRFProof(header *types.Header) error {
+	// If VRF proof is not present, skip verification
+	// This allows backward compatibility with blocks before VRF was added
+	if header.VRFProof == nil || len(header.VRFProof) == 0 {
+		return nil
+	}
+
+	// VRF proof is present, so public key must also be present
+	if header.VRFPublicKey == nil || len(header.VRFPublicKey) == 0 {
+		return errors.New("VRF proof present but public key missing")
+	}
+
+	// Verify the VRF proof using the seal hash as the message
+	message := ecc.SealHash(header).Bytes()
+	valid, err := Verify(header.VRFPublicKey, header.VRFProof, message)
+	if err != nil {
+		return fmt.Errorf("VRF verification error: %w", err)
+	}
+	if !valid {
+		return errors.New("invalid VRF proof")
+	}
+
+	// Check if the VRF proof passes sortition
+	if !CheckSortition(header.VRFProof) {
+		return errors.New("VRF proof does not pass sortition criteria")
 	}
 
 	return nil
@@ -437,7 +472,7 @@ func (ecc *ECC) Prepare(chain consensus.ChainHeaderReader, header *types.Header)
 		return consensus.ErrUnknownAncestor
 	}
 	header.Difficulty = ecc.CalcDifficulty(chain, header.Time, parent)
-	
+
 	return nil
 }
 
@@ -479,7 +514,7 @@ func (ecc *ECC) SealHash(header *types.Header) (hash common.Hash) {
 	if header.BaseFee != nil {
 		enc = append(enc, header.BaseFee)
 	}
-	
+
 	rlp.Encode(hasher, enc)
 	hasher.Sum(hash[:0])
 	return hash
@@ -507,29 +542,29 @@ func accumulateRewards(config *params.ChainConfig, state *state.StateDB, header 
 	}
 	if config.IsWorldland(header.Number) {
 		blockReward = big.NewInt(WorldLandBlockReward.Int64())
-		
+
 		if config.IsWorldLandHalving(header.Number) {
 			blockHeight := header.Number.Uint64()
 			HalvingLevel := (blockHeight - 1 - config.WorldlandBlock.Uint64()) / HALVING_INTERVAL
-			
+
 			blockReward.Rsh(blockReward, uint(HalvingLevel))
-			
+
 		} else if config.IsWorldLandMaturity(header.Number) {
 			blockHeight := header.Number.Uint64()
 			blockReward = big.NewInt(1e+18)
 
 			MaturityLevel := (blockHeight - 1 - config.HalvingEndTime.Uint64()) / MATURITY_INTERVAL
-						
+
 			blockReward.Mul(blockReward, SumRewardUntilMaturity)
-			blockReward.Div(blockReward, new(big.Int).SetUint64(MATURITY_INTERVAL)) 
-			
+			blockReward.Div(blockReward, new(big.Int).SetUint64(MATURITY_INTERVAL))
+
 			blockReward.Mul(blockReward, big.NewInt(4))
 			blockReward.Div(blockReward, big.NewInt(100))
 
 			for i := 0; i < int(MaturityLevel); i++ {
 				blockReward.Mul(blockReward, big.NewInt(104))
 				blockReward.Div(blockReward, big.NewInt(100))
-			}	
+			}
 		}
 	}
 

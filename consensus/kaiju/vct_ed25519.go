@@ -15,12 +15,12 @@ import (
 )
 
 const (
-	limit    = 100                                   // hashToCurve 시도 횟수 제한
-	N2       = 32                                    // 정수 크기 (256bit)
-	N        = N2 / 2                                // N은 16바이트
+	limit    = 100                                                                // hashToCurve 시도 횟수 제한
+	N2       = 32                                                                 // 정수 크기 (256bit)
+	N        = N2 / 2                                                             // N은 16바이트
 	qs       = "1000000000000000000000000000000014def9dea2f79cd65812631a5cf5d3ed" // q = 2^252 + ...
-	cofactor = 8                                     // Edwards25519 곱셈 계수
-	NOSIGN   = 3                                     // sign 없음 (for hashToCurve)
+	cofactor = 8                                                                  // Edwards25519 곱셈 계수
+	NOSIGN   = 3                                                                  // sign 없음 (for hashToCurve)
 )
 
 var (
@@ -44,8 +44,8 @@ const (
 // Prove generates vrf output and corresponding proof(pi) with secret key
 // Prove: VRF 증명(pi)과 해시(hash)를 생성
 func Prove(pk []byte, sk []byte, m []byte) (pi, hash []byte, err error) {
-	x := expandSecret(sk)         // 비밀키를 확장하여 스칼라 x로 사용
-	h := hashToCurve(m, pk)       // 메시지를 커브 상의 점 h로 해싱
+	x := expandSecret(sk)           // 비밀키를 확장하여 스칼라 x로 사용
+	h := hashToCurve(m, pk)         // 메시지를 커브 상의 점 h로 해싱
 	r := ecp2OS(geScalarMult(h, x)) // gamma = h^x
 
 	// 랜덤 nonce k 생성
@@ -78,7 +78,6 @@ func Prove(pk []byte, sk []byte, m []byte) (pi, hash []byte, err error) {
 
 	return pi, Hash(pi), nil
 }
-
 
 // Hash: pi에서 VRF output만 추출
 func Hash(pi []byte) []byte {
@@ -175,7 +174,6 @@ func hashToCurve(m []byte, pk []byte) *edwards25519.ExtendedGroupElement {
 	panic("hashToCurve: couldn't make a point on curve")
 }
 
-
 func os2ECP(os []byte, sign byte) *edwards25519.ExtendedGroupElement {
 	P := new(edwards25519.ExtendedGroupElement)
 	var buf [32]byte
@@ -266,9 +264,7 @@ func expandSecret(sk []byte) *[32]byte {
 	return h
 }
 
-//
 // copied from edwards25519.go and const.go in golang.org/x/crypto/ed25519/internal/edwards25519
-//
 type CachedGroupElement struct {
 	yPlusX, yMinusX, Z, T2d edwards25519.FieldElement
 }
@@ -357,9 +353,24 @@ func DoTestECVRF(pk, sk []byte, msg []byte, verbose bool) string {
 	return hex.EncodeToString(Hash(pi))
 }
 
-// random number가 특정 조건(a로 시작)에 해당하면 true
-func sortition(RN string) bool {
-	return RN[:1] == "a"
+// Sortition checks if the random number passes the sortition criteria
+func Sortition(RN string) bool {
+	if len(RN) == 0 {
+		return false
+	}
+	firstChar := RN[0]
+	
+	return (firstChar >= '0' && firstChar <= '9') ||
+		(firstChar >= 'a' && firstChar <= 'f') ||
+		(firstChar >= 'A' && firstChar <= 'F')
+}
+
+// CheckSortition checks if a VRF proof passes the sortition criteria
+// Returns true if the node is selected to produce a block
+func CheckSortition(vrfProof []byte) bool {
+	hash := Hash(vrfProof)
+	randomNumber := hex.EncodeToString(hash)
+	return Sortition(randomNumber)
 }
 
 // 노드를 무작위 선택 (sortition 아님)
