@@ -5,8 +5,11 @@
 
 package types
 
-import "github.com/cryptoecc/WorldLand/rlp"
-import "io"
+import (
+	"io"
+
+	"github.com/cryptoecc/WorldLand/rlp"
+)
 
 func (obj *Header) EncodeRLP(_w io.Writer) error {
 	w := rlp.NewEncoderBuffer(_w)
@@ -62,6 +65,22 @@ func (obj *Header) EncodeRLP(_w io.Writer) error {
 	}
 	if obj.CodeLength != 0 {
 		w.WriteUint64(obj.CodeLength)
+	}
+	_tmp3 := obj.VRFProof != nil
+	if _tmp3 {
+		if obj.VRFProof == nil {
+			w.Write(rlp.EmptyString)
+		} else {
+			w.WriteBytes(obj.VRFProof)
+		}
+	}
+	_tmp4 := obj.VRFPublicKey != nil
+	if _tmp4 {
+		if obj.VRFPublicKey == nil {
+			w.Write(rlp.EmptyString)
+		} else {
+			w.WriteBytes(obj.VRFPublicKey)
+		}
 	}
 	w.ListEnd(_tmp0)
 	return w.Flush()

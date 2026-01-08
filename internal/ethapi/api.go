@@ -731,10 +731,10 @@ func (s *BlockChainAPI) GetHeaderByHash(ctx context.Context, hash common.Hash) m
 }
 
 // GetBlockByNumber returns the requested canonical block.
-// * When blockNr is -1 the chain head is returned.
-// * When blockNr is -2 the pending chain head is returned.
-// * When fullTx is true all transactions in the block are returned, otherwise
-//   only the transaction hash is returned.
+//   - When blockNr is -1 the chain head is returned.
+//   - When blockNr is -2 the pending chain head is returned.
+//   - When fullTx is true all transactions in the block are returned, otherwise
+//     only the transaction hash is returned.
 func (s *BlockChainAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber, fullTx bool) (map[string]interface{}, error) {
 	block, err := s.b.BlockByNumber(ctx, number)
 	if block != nil && err == nil {
@@ -1183,9 +1183,17 @@ func RPCMarshalHeader(head *types.Header) map[string]interface{} {
 	if head.Codeword != nil {
 		result["codeword"] = hexutil.Bytes(head.Codeword)
 	}
-	
+
 	if head.CodeLength != 0 {
 		result["codelength"] = hexutil.Uint64(head.CodeLength)
+	}
+
+	if head.VRFProof != nil {
+		result["vrfProof"] = hexutil.Bytes(head.VRFProof)
+	}
+
+	if head.VRFPublicKey != nil {
+		result["vrfPublicKey"] = hexutil.Bytes(head.VRFPublicKey)
 	}
 
 	return result
