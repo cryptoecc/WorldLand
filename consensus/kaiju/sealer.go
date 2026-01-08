@@ -419,7 +419,7 @@ search:
 						randomNumber := hex.EncodeToString(hash)
 						passedSortition := CheckSortition(vrfProof)
 
-						logger.Info("🎲 VRF proof generated [mine_seoul]",
+						logger.Info("🎲 VRF proof generated [mine_mio]",
 							"block", header.Number,
 							"nonce", nonce,
 							"randomNumber", randomNumber[:8]+"...",
@@ -430,10 +430,10 @@ search:
 							header.VRFProof = vrfProof
 							header.VRFPublicKey = ecc.vrfPublicKey
 							vrfGenerated = true
-							logger.Info("✅ Sortition PASSED! Sealing block [mine_seoul]", "block", header.Number, "nonce", nonce)
+							logger.Info("✅ Sortition PASSED! Sealing block [mine_mio]", "block", header.Number, "nonce", nonce)
 						} else {
 							// VRF proof generated but failed sortition - continue mining
-							logger.Debug("❌ Sortition failed, continuing search... [mine_seoul]", "nonce", nonce)
+							logger.Debug("❌ Sortition failed, continuing search... [mine_mio]", "nonce", nonce)
 							ecc.lock.Unlock()
 							nonce++
 							continue
