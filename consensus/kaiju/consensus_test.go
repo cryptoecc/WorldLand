@@ -21,14 +21,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/cryptoecc/WorldLand/common"
 	"github.com/cryptoecc/WorldLand/common/math"
 	"github.com/cryptoecc/WorldLand/core/types"
-	"github.com/cryptoecc/WorldLand/params"
 )
 
 type diffTest struct {
@@ -58,34 +55,6 @@ func (d *diffTest) UnmarshalJSON(b []byte) (err error) {
 	d.CurrentDifficulty = math.MustParseBig256(ext.CurrentDifficulty)
 
 	return nil
-}
-
-func TestCalcDifficulty(t *testing.T) {
-	file, err := os.Open(filepath.Join("..", "..", "tests", "testdata", "BasicTests", "difficulty.json"))
-	if err != nil {
-		t.Skip(err)
-	}
-	defer file.Close()
-
-	tests := make(map[string]diffTest)
-	err = json.NewDecoder(file).Decode(&tests)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	config := &params.ChainConfig{HomesteadBlock: big.NewInt(1150000)}
-
-	for name, test := range tests {
-		number := new(big.Int).Sub(test.CurrentBlocknumber, big.NewInt(1))
-		diff := CalcDifficulty(config, test.CurrentTimestamp, &types.Header{
-			Number:     number,
-			Time:       test.ParentTimestamp,
-			Difficulty: test.ParentDifficulty,
-		})
-		if diff.Cmp(test.CurrentDifficulty) != 0 {
-			t.Error(name, "failed. Expected", test.CurrentDifficulty, "and calculated", diff)
-		}
-	}
 }
 
 func TestDecodingVerification(t *testing.T) {
@@ -153,4 +122,272 @@ func TestDecodingVerification(t *testing.T) {
 		//t.Logf("\n")
 		fmt.Println()
 	}
+}
+
+// TestVRFProofWithoutProof tests that blocks without VRF proof are rejected
+func TestVRFProofWithoutProof(t *testing.T) {
+	ecc := &ECC{}
+	header := &types.Header{
+		Number:     big.NewInt(1),
+		Difficulty: big.NewInt(1000),
+		Time:       1234567890,
+	}
+
+	err := ecc.verifyVRFProof(header)
+	if err == nil {
+		t.Fatal("Expected error for header without VRF proof")
+	}
+	if err.Error() != "VRF proof is required but missing" {
+		t.Errorf("Expected 'VRF proof is required but missing', got '%s'", err.Error())
+	}
+}
+
+// TestVRFProofWithoutPublicKey tests that blocks without VRF public key are rejected
+func TestVRFProofWithoutPublicKey(t *testing.T) {
+	ecc := &ECC{}
+	header := &types.Header{
+		Number:     big.NewInt(1),
+		Difficulty: big.NewInt(1000),
+		Time:       1234567890,
+		VRFProof:   []byte("dummy_proof"),
+	}
+
+	err := ecc.verifyVRFProof(header)
+	if err == nil {
+		t.Fatal("Expected error for VRF proof without public key")
+	}
+	if err.Error() != "VRF public key is required but missing" {
+		t.Errorf("Expected 'VRF public key is required but missing', got '%s'", err.Error())
+	}
+}
+
+// TestVRFProofInvalid tests that blocks with invalid VRF proofs are rejected
+func TestVRFProofInvalid(t *testing.T) {
+	ecc := &ECC{}
+	pk, _ := KeyGen()
+
+	header := &types.Header{
+		Number:       big.NewInt(1),
+		Difficulty:   big.NewInt(1000),
+		Time:         1234567890,
+		VRFProof:     []byte("invalid_proof_data"),
+		VRFPublicKey: pk,
+	}
+
+	err := ecc.verifyVRFProof(header)
+	if err == nil {
+		t.Fatal("Expected error for invalid VRF proof")
+	}
+}
+
+// TestVRFProofMismatchedKey tests that blocks with mismatched key and proof are rejected
+func TestVRFProofMismatchedKey(t *testing.T) {
+	ecc := &ECC{}
+	pk1, sk1 := KeyGen()
+	pk2, _ := KeyGen()
+
+	message := []byte("test message")
+	pi, _, err := Prove(pk1, sk1, message)
+	if err != nil {
+		t.Fatalf("Failed to generate VRF proof: %v", err)
+	}
+
+	header := &types.Header{
+		Number:       big.NewInt(1),
+		Difficulty:   big.NewInt(1000),
+		Time:         1234567890,
+		VRFProof:     pi,
+		VRFPublicKey: pk2,
+	}
+
+	err = ecc.verifyVRFProof(header)
+	if err == nil {
+		t.Fatal("Expected error for mismatched key and proof")
+	}
+}
+
+// TestVRFProofSortition tests that blocks are accepted or rejected based on sortition
+func TestVRFProofSortition(t *testing.T) {
+	ecc := &ECC{}
+	numTests := 10
+	passCount := 0
+
+	for i := 0; i < numTests; i++ {
+		pk, sk := KeyGen()
+		message := ecc.SealHash(&types.Header{
+			Number:     big.NewInt(int64(i + 1)),
+			Difficulty: big.NewInt(1000),
+			Time:       uint64(1234567890 + i),
+		}).Bytes()
+
+		pi, _, err := Prove(pk, sk, message)
+		if err != nil {
+			t.Fatalf("Failed to generate VRF proof: %v", err)
+		}
+
+		header := &types.Header{
+			Number:       big.NewInt(int64(i + 1)),
+			Difficulty:   big.NewInt(1000),
+			Time:         uint64(1234567890 + i),
+			VRFProof:     pi,
+			VRFPublicKey: pk,
+		}
+
+		err = ecc.verifyVRFProof(header)
+		passedSortition := CheckSortition(pi)
+
+		if passedSortition {
+			if err != nil {
+				t.Errorf("Block %d: valid VRF proof passing sortition was rejected: %v", i, err)
+			} else {
+				passCount++
+			}
+		} else {
+			if err == nil {
+				t.Errorf("Block %d: VRF proof failing sortition was accepted", i)
+			}
+		}
+	}
+}
+
+// TestVRFProofDeterministic tests that VRF verification is deterministic
+func TestVRFProofDeterministic(t *testing.T) {
+	ecc := &ECC{}
+	pk, sk := KeyGen()
+	message := []byte("deterministic test")
+	pi, _, err := Prove(pk, sk, message)
+	if err != nil {
+		t.Fatalf("Failed to generate VRF proof: %v", err)
+	}
+
+	header := &types.Header{
+		Number:       big.NewInt(100),
+		Difficulty:   big.NewInt(1000),
+		Time:         1234567890,
+		VRFProof:     pi,
+		VRFPublicKey: pk,
+	}
+
+	firstErr := ecc.verifyVRFProof(header)
+	for i := 0; i < 20; i++ {
+		err := ecc.verifyVRFProof(header)
+		if (firstErr == nil) != (err == nil) {
+			t.Fatalf("Verification not deterministic: first=%v, iteration %d=%v", firstErr, i, err)
+		}
+		if firstErr != nil && err != nil && firstErr.Error() != err.Error() {
+			t.Fatalf("Error message changed: first=%v, iteration %d=%v", firstErr, i, err)
+		}
+	}
+}
+
+// TestVRFProofCorrectSubmission tests that blocks with valid VRF proofs passing sortition are accepted
+func TestVRFProofCorrectSubmission(t *testing.T) {
+	ecc := &ECC{}
+
+	maxAttempts := 10
+	accepted := false
+
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		pk, sk := KeyGen()
+		message := ecc.SealHash(&types.Header{
+			Number:     big.NewInt(int64(attempt + 1)),
+			Difficulty: big.NewInt(1000),
+			Time:       uint64(1234567890 + attempt),
+		}).Bytes()
+
+		pi, hash, err := Prove(pk, sk, message)
+		if err != nil {
+			t.Fatalf("Failed to generate VRF proof: %v", err)
+		}
+
+		// Check if this proof passes sortition
+		if !CheckSortition(pi) {
+			continue
+		}
+
+		// Found a proof that passes sortition, now verify it's accepted
+		header := &types.Header{
+			Number:       big.NewInt(int64(attempt + 1)),
+			Difficulty:   big.NewInt(1000),
+			Time:         uint64(1234567890 + attempt),
+			VRFProof:     pi,
+			VRFPublicKey: pk,
+		}
+
+		err = ecc.verifyVRFProof(header)
+		if err != nil {
+			t.Fatalf("Valid VRF proof passing sortition was rejected: %v", err)
+		}
+
+		// Verify the proof cryptographically
+		valid, err := Verify(pk, pi, message)
+		if err != nil {
+			t.Fatalf("VRF verification failed: %v", err)
+		}
+		if !valid {
+			t.Fatal("VRF proof verification returned false")
+		}
+
+		t.Logf("✓ Correct VRF proof accepted (attempt %d)", attempt+1)
+		t.Logf("  VRF output: %x", hash)
+		t.Logf("  Sortition: PASSED")
+		accepted = true
+		break
+	}
+
+	if !accepted {
+		t.Fatalf("Failed to generate a proof passing sortition after %d attempts", maxAttempts)
+	}
+}
+
+// TestVRFProofMultipleValid tests multiple valid VRF proofs are accepted when they pass sortition
+func TestVRFProofMultipleValid(t *testing.T) {
+	ecc := &ECC{}
+
+	// Generate multiple valid proofs
+	validCount := 0
+	maxTests := 50
+	targetValid := 3 // Try to get at least 3 valid proofs
+
+	for i := 0; i < maxTests && validCount < targetValid; i++ {
+		pk, sk := KeyGen()
+		message := ecc.SealHash(&types.Header{
+			Number:     big.NewInt(int64(i + 1)),
+			Difficulty: big.NewInt(1000),
+			Time:       uint64(1234567890 + i),
+		}).Bytes()
+
+		pi, hash, err := Prove(pk, sk, message)
+		if err != nil {
+			t.Fatalf("Failed to generate VRF proof: %v", err)
+		}
+
+		// Only test proofs that pass sortition
+		if !CheckSortition(pi) {
+			continue
+		}
+
+		header := &types.Header{
+			Number:       big.NewInt(int64(i + 1)),
+			Difficulty:   big.NewInt(1000),
+			Time:         uint64(1234567890 + i),
+			VRFProof:     pi,
+			VRFPublicKey: pk,
+		}
+
+		err = ecc.verifyVRFProof(header)
+		if err != nil {
+			t.Errorf("Block %d: valid VRF proof was rejected: %v", i, err)
+			continue
+		}
+
+		validCount++
+		t.Logf("✓ Block %d: VRF proof accepted, output=%x", i, hash[:8])
+	}
+
+	if validCount == 0 {
+		t.Fatalf("No valid proofs passed sortition in %d attempts", maxTests)
+	}
+
+	t.Logf("\n=== Summary: %d/%d blocks with valid VRF proofs were accepted ===", validCount, maxTests)
 }

@@ -434,16 +434,16 @@ func (ecc *ECC) verifySeal(chain consensus.ChainHeaderReader, header *types.Head
 }
 
 // verifyVRFProof checks whether the VRF proof in the header is valid
+// VRF proof is now MANDATORY for all blocks
 func (ecc *ECC) verifyVRFProof(header *types.Header) error {
-	// If VRF proof is not present, skip verification
-	// This allows backward compatibility with blocks before VRF was added
+	
 	if header.VRFProof == nil || len(header.VRFProof) == 0 {
-		return nil
+		return errors.New("VRF proof is required but missing")
 	}
 
-	// VRF proof is present, so public key must also be present
+	// VRF public key must be present
 	if header.VRFPublicKey == nil || len(header.VRFPublicKey) == 0 {
-		return errors.New("VRF proof present but public key missing")
+		return errors.New("VRF public key is required but missing")
 	}
 
 	// Verify the VRF proof using the seal hash as the message
