@@ -21,9 +21,9 @@ import (
 	"context"
 	crand "crypto/rand"
 	"encoding/binary"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 	"math/big"
 	"math/rand"
@@ -68,6 +68,37 @@ func (ecc *ECC) Seal(chain consensus.ChainHeaderReader, block *types.Block, resu
 	if ecc.shared != nil {
 		return ecc.shared.Seal(chain, block, results, stop)
 	}
+
+	// Check sortition epoch eligibility before starting to mine
+	blockNumber := block.Header().Number.Uint64()
+	sortitionEpoch := SortitionEpoch(blockNumber)
+
+	eligible, sortitionProof, err := ecc.IsEligibleForSortitionEpoch(chain, blockNumber)
+	if err != nil {
+		log.Warn("❌ Failed to check sortition eligibility", "sortitionEpoch", sortitionEpoch, "block", blockNumber, "err", err)
+		return fmt.Errorf("sortition eligibility check failed: %w", err)
+	}
+
+	if !eligible {
+		log.Warn("❌ Not eligible to mine in this sortition epoch - sortition failed",
+			"sortitionEpoch", sortitionEpoch,
+			"block", blockNumber,
+			"seedBlock", GetSortitionSeedBlockNumber(blockNumber))
+		return errors.New("not eligible for sortition epoch")
+	}
+
+	log.Info("✅ Eligible to mine in this sortition epoch",
+		"sortitionEpoch", sortitionEpoch,
+		"block", blockNumber,
+		"proofLen", len(sortitionProof))
+
+	// Store the sortition proof in the header for verification by other nodes
+	header := block.Header()
+	header.VRFProof = sortitionProof
+	ecc.lock.Lock()
+	header.VRFPublicKey = ecc.vrfPublicKey
+	ecc.lock.Unlock()
+
 	// Create a runner and the multiple search threads it directs
 	abort := make(chan struct{})
 
@@ -102,11 +133,11 @@ func (ecc *ECC) Seal(chain consensus.ChainHeaderReader, block *types.Block, resu
 		go func(id int, nonce uint64) {
 			defer pend.Done()
 			//ecc.mine(block, id, nonce, abort, locals)
-			if chain.Config().IsMio(block.Header().Number){
+			if chain.Config().IsMio(block.Header().Number) {
 				ecc.mine_mio(block, id, nonce, abort, locals)
-			} else if chain.Config().IsSeoul(block.Header().Number){
+			} else if chain.Config().IsSeoul(block.Header().Number) {
 				ecc.mine_seoul(block, id, nonce, abort, locals)
-			} else{
+			} else {
 				ecc.mine(block, id, nonce, abort, locals)
 			}
 		}(i, uint64(ecc.rand.Int63()))
@@ -152,8 +183,8 @@ func (ecc *ECC) mine(block *types.Block, id int, seed uint64, abort chan struct{
 	// Start generating random nonces until we abort or find a good one
 	var (
 		total_attempts = int64(0)
-		attempts = int64(0)
-		nonce    = seed
+		attempts       = int64(0)
+		nonce          = seed
 	)
 	logger := log.New("miner", id)
 	logger.Trace("Started ecc search for new nonces", "seed", seed)
@@ -209,14 +240,14 @@ search:
 				//fmt.Printf("header: %v\n", header)
 				//fmt.Printf("header Codeword : %v\n", header.Codeword)
 
-					// Seal and return a block (if still needed)
-					select {
-					case found <- block.WithSeal(header):
-						logger.Trace("ecc nonce found and reported", "LDPCNonce", LDPCNonce)
-					case <-abort:
-						logger.Trace("ecc nonce found but discarded", "LDPCNonce", LDPCNonce)
-					}
-					break search
+				// Seal and return a block (if still needed)
+				select {
+				case found <- block.WithSeal(header):
+					logger.Trace("ecc nonce found and reported", "LDPCNonce", LDPCNonce)
+				case <-abort:
+					logger.Trace("ecc nonce found but discarded", "LDPCNonce", LDPCNonce)
+				}
+				break search
 			}
 		}
 	}
@@ -231,8 +262,8 @@ func (ecc *ECC) mine_seoul(block *types.Block, id int, seed uint64, abort chan s
 	// Start generating random nonces until we abort or find a good one
 	var (
 		total_attempts = int64(0)
-		attempts = int64(0)
-		nonce    = seed
+		attempts       = int64(0)
+		nonce          = seed
 	)
 	logger := log.New("miner", id)
 	logger.Trace("Started ecc search for new nonces", "seed", seed)
@@ -259,7 +290,7 @@ search:
 				ecc.hashrate.Mark(attempts)
 				attempts = 0
 			}
-		
+
 			digest := make([]byte, 40)
 			copy(digest, hash)
 			binary.LittleEndian.PutUint64(digest[32:], nonce)
@@ -268,7 +299,7 @@ search:
 
 			goRoutineHashVector := generateHv(parameters, digest)
 			goRoutineHashVector, goRoutineOutputWord, _ := OptimizedDecodingSeoul(parameters, goRoutineHashVector, H, rowInCol, colInRow)
-			
+
 			flag, _ := MakeDecision_Seoul(header, colInRow, goRoutineOutputWord)
 			//fmt.Printf("nonce: %v\n", nonce)
 			//fmt.Printf("nonce: %v\n", weight)
@@ -288,7 +319,7 @@ search:
 				header.CodeLength = uint64(parameters.n)
 				header.MixDigest = common.BytesToHash(digest)
 				header.Nonce = types.EncodeNonce(nonce)
-				
+
 				//convert codeword
 				var codeword []byte
 				var codeVal byte
@@ -330,8 +361,8 @@ func (ecc *ECC) mine_mio(block *types.Block, id int, seed uint64, abort chan str
 	// Start generating random nonces until we abort or find a good one
 	var (
 		total_attempts = int64(0)
-		attempts = int64(0)
-		nonce    = seed
+		attempts       = int64(0)
+		nonce          = seed
 	)
 	logger := log.New("miner", id)
 	logger.Trace("Started ecc search for new nonces", "seed", seed)
@@ -406,69 +437,26 @@ search:
 				//fmt.Printf("header: %v\n", header)
 				//fmt.Printf("header Codeword : %v\n", header.Codeword)
 
-				// Generate VRF proof using the block hash before sealing
-				ecc.lock.Lock()
-				vrfGenerated := false
-				if len(ecc.vrfPrivateKey) > 0 && len(ecc.vrfPublicKey) > 0 {
-					// Use the seal hash WITH the current nonce as the message
-					// This ensures each nonce attempt produces a different VRF proof
-					message := ecc.SealHash(header).Bytes()
-					vrfProof, hash, err := Prove(ecc.vrfPublicKey, ecc.vrfPrivateKey, message)
-					if err == nil {
-						// Check if this VRF proof passes sortition
-						randomNumber := hex.EncodeToString(hash)
-						passedSortition := CheckSortition(vrfProof)
+				// VRF proof and sortition were already checked at Seal() entry point
+				// The header already has VRFProof and VRFPublicKey set from epoch sortition
+				// Just seal the block with the valid PoW nonce
+				logger.Info("✅ PoW solution found, sealing block", "block", header.Number, "nonce", nonce)
 
-						logger.Info("🎲 VRF proof generated [mine_mio]",
-							"block", header.Number,
-							"nonce", nonce,
-							"randomNumber", randomNumber[:8]+"...",
-							"firstChar", string(randomNumber[0]),
-							"sortition", passedSortition)
-
-						if passedSortition {
-							header.VRFProof = vrfProof
-							header.VRFPublicKey = ecc.vrfPublicKey
-							vrfGenerated = true
-							logger.Info("✅ Sortition PASSED! Sealing block [mine_mio]", "block", header.Number, "nonce", nonce)
-						} else {
-							// VRF proof generated but failed sortition - continue mining
-							logger.Debug("❌ Sortition failed, continuing search... [mine_mio]", "nonce", nonce)
-							ecc.lock.Unlock()
-							nonce++
-							continue
-						}
-					} else {
-						logger.Warn("Failed to generate VRF proof", "err", err)
-						ecc.lock.Unlock()
-						nonce++
-						continue
-					}
-				} else {
-					// No VRF keys configured, allow mining without VRF
-					vrfGenerated = true
+				// Seal and return a block (if still needed)
+				select {
+				case found <- block.WithSeal(header):
+					logger.Trace("ecc nonce found and reported", "LDPCNonce", nonce)
+				case <-abort:
+					logger.Trace("ecc nonce found but discarded", "LDPCNonce", nonce)
 				}
-				ecc.lock.Unlock()
-
-				// Only seal the block if VRF was successfully generated and passed sortition
-				if vrfGenerated {
-					// Seal and return a block (if still needed)
-					select {
-					case found <- block.WithSeal(header):
-						logger.Trace("ecc nonce found and reported", "LDPCNonce", nonce)
-					case <-abort:
-						logger.Trace("ecc nonce found but discarded", "LDPCNonce", nonce)
-					}
-					break search
-				}
+				break search
 			}
 			nonce++
 		}
 	}
 }
 
-
-//GPU MINING... NEED TO UPDTAE
+// GPU MINING... NEED TO UPDTAE
 // This is the timeout for HTTP requests to notify external miners.
 const remoteSealerTimeout = 1 * time.Second
 
@@ -481,7 +469,7 @@ type remoteSealer struct {
 	cancelNotify context.CancelFunc // cancels all notification requests
 	reqWG        sync.WaitGroup     // tracks notification request goroutines
 
-	ecc       *ECC
+	ecc          *ECC
 	noverify     bool
 	notifyURLs   []string
 	results      chan<- *types.Block
@@ -527,7 +515,7 @@ type sealWork struct {
 func startRemoteSealer(ecc *ECC, urls []string, noverify bool) *remoteSealer {
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &remoteSealer{
-		ecc:       ecc,
+		ecc:          ecc,
 		noverify:     noverify,
 		notifyURLs:   urls,
 		notifyCtx:    ctx,
@@ -621,10 +609,11 @@ func (s *remoteSealer) loop() {
 // makeWork creates a work package for external miner.
 //
 // The work package consists of 3 strings:
-//   result[0], 32 bytes hex encoded current block header pow-hash
-//   result[1], 32 bytes hex encoded seed hash used for DAG
-//   result[2], 32 bytes hex encoded boundary condition ("target"), 2^256/difficulty
-//   result[3], hex encoded block number
+//
+//	result[0], 32 bytes hex encoded current block header pow-hash
+//	result[1], 32 bytes hex encoded seed hash used for DAG
+//	result[2], 32 bytes hex encoded boundary condition ("target"), 2^256/difficulty
+//	result[3], hex encoded block number
 func (s *remoteSealer) makeWork(block *types.Block) {
 	hash := s.ecc.SealHash(block.Header())
 	s.currentWork[0] = hash.Hex()
@@ -730,4 +719,3 @@ func (s *remoteSealer) submitWork(nonce types.BlockNonce, mixDigest common.Hash,
 	s.ecc.config.Log.Warn("Work submitted is too old", "number", solution.NumberU64(), "sealhash", sealhash, "hash", solution.Hash())
 	return false
 }
-

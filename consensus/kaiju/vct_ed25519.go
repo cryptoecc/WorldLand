@@ -359,10 +359,8 @@ func Sortition(RN string) bool {
 		return false
 	}
 	firstChar := RN[0]
-	
-	return (firstChar >= '0' && firstChar <= '9') ||
-		(firstChar >= 'a' && firstChar <= 'f') ||
-		(firstChar >= 'A' && firstChar <= 'F')
+
+	return (firstChar >= '0' && firstChar <= '9')
 }
 
 // CheckSortition checks if a VRF proof passes the sortition criteria

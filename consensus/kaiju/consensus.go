@@ -29,6 +29,7 @@ import (
 	"github.com/cryptoecc/WorldLand/consensus/misc"
 	"github.com/cryptoecc/WorldLand/core/state"
 	"github.com/cryptoecc/WorldLand/core/types"
+	"github.com/cryptoecc/WorldLand/log"
 	"github.com/cryptoecc/WorldLand/params"
 	"github.com/cryptoecc/WorldLand/rlp"
 	"github.com/cryptoecc/WorldLand/trie"
@@ -49,7 +50,7 @@ var (
 
 	SumRewardUntilMaturity = big.NewInt(47304000) //Total supply of token until maturity
 
-	MaxHalving             = int64(4)
+	MaxHalving = int64(4)
 
 	maxUncles                     = 2         // Maximum number of uncles allowed in a single block
 	allowedFutureBlockTimeSeconds = int64(15) // Max seconds from current time allowed for blocks, before they're considered future blocks
@@ -300,8 +301,8 @@ func (ecc *ECC) verifyHeader(chain consensus.ChainHeaderReader, header, parent *
 			return err
 		}
 	}
-	// Verify VRF proof if present
-	if err := ecc.verifyVRFProof(header); err != nil {
+	// Verify VRF proof for epoch sortition
+	if err := ecc.verifyVRFProof(chain, header); err != nil {
 		return err
 	}
 	// If all checks passed, validate any special fields for hard forks
@@ -412,12 +413,12 @@ func (ecc *ECC) verifySeal(chain consensus.ChainHeaderReader, header *types.Head
 
 	var (
 		digest []byte
-		flag bool
+		flag   bool
 	)
-	if chain.Config().IsSeoul(header.Number){
+	if chain.Config().IsSeoul(header.Number) {
 		//fmt.Println("Seoul")
 		flag, _, _, digest = VerifyOptimizedDecodingSeoul(header, ecc.SealHash(header).Bytes())
-	} else{
+	} else {
 		flag, _, _, digest = VerifyOptimizedDecoding(header, ecc.SealHash(header).Bytes())
 	}
 
@@ -433,10 +434,11 @@ func (ecc *ECC) verifySeal(chain consensus.ChainHeaderReader, header *types.Head
 	return nil
 }
 
-// verifyVRFProof checks whether the VRF proof in the header is valid
-// VRF proof is now MANDATORY for all blocks
-func (ecc *ECC) verifyVRFProof(header *types.Header) error {
-	
+// verifyVRFProof checks whether the VRF proof in the header is valid for epoch sortition.
+// The proof must be generated using the epoch seed hash (block hash from SeedLookback blocks
+// before the epoch boundary) to prevent fork-based manipulation.
+func (ecc *ECC) verifyVRFProof(chain consensus.ChainHeaderReader, header *types.Header) error {
+
 	if header.VRFProof == nil || len(header.VRFProof) == 0 {
 		return errors.New("VRF proof is required but missing")
 	}
@@ -446,20 +448,34 @@ func (ecc *ECC) verifyVRFProof(header *types.Header) error {
 		return errors.New("VRF public key is required but missing")
 	}
 
-	// Verify the VRF proof using the seal hash as the message
-	message := ecc.SealHash(header).Bytes()
-	valid, err := Verify(header.VRFPublicKey, header.VRFProof, message)
+	// Get the sortition seed hash for verification
+	// This uses the same seed block that the miner used for sortition
+	blockNumber := header.Number.Uint64()
+	seedHash := ecc.GetSortitionSeedHash(chain, blockNumber)
+	if seedHash == (common.Hash{}) {
+		return errors.New("failed to get sortition seed hash for verification")
+	}
+
+	// Verify the VRF proof using the sortition seed hash as the message
+	valid, err := Verify(header.VRFPublicKey, header.VRFProof, seedHash.Bytes())
 	if err != nil {
 		return fmt.Errorf("VRF verification error: %w", err)
 	}
 	if !valid {
-		return errors.New("invalid VRF proof")
+		return errors.New("invalid VRF proof for sortition seed")
 	}
 
-	// Check if the VRF proof passes sortition
+	// Check if the VRF proof passes sortition criteria
 	if !CheckSortition(header.VRFProof) {
 		return errors.New("VRF proof does not pass sortition criteria")
 	}
+
+	sortitionEpoch := SortitionEpoch(blockNumber)
+	seedBlockNum := GetSortitionSeedBlockNumber(blockNumber)
+	log.Debug("✅ VRF sortition verified",
+		"sortitionEpoch", sortitionEpoch,
+		"block", blockNumber,
+		"seedBlock", seedBlockNum)
 
 	return nil
 }

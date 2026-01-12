@@ -2,12 +2,16 @@ package kaiju
 
 import (
 	"encoding/binary"
+	"encoding/hex"
+	"errors"
+	"fmt"
 	"hash"
 	"math/big"
 	"math/rand"
 	"sync"
 	"time"
 
+	"github.com/cryptoecc/WorldLand/common"
 	"github.com/cryptoecc/WorldLand/consensus"
 	"github.com/cryptoecc/WorldLand/core/types"
 	"github.com/cryptoecc/WorldLand/crypto"
@@ -49,13 +53,108 @@ type ECC struct {
 type Mode uint
 
 const (
-	epochLength      = 30000 // Blocks per epoch
-	ModeNormal  Mode = iota
+	// Existing epoch for DAG seed generation (DO NOT CHANGE)
+	epochLength = 30000 // Blocks per epoch for DAG seed hash - used by seedHash()
+
+	// Sortition epoch configuration (for VRF-based mining eligibility)
+	SortitionEpochLength  = 100 // Blocks per sortition epoch (every 100 blocks)
+	SortitionSeedLookback = 10  // Blocks before sortition epoch boundary for seed (fork resistance)
+
+	ModeNormal Mode = iota
 	ModeShared
 	ModeTest
 	ModeFake
 	ModeFullFake
 )
+
+// SortitionEpoch returns the sortition epoch number for a given block number.
+// This is used for VRF-based mining eligibility, NOT for DAG generation.
+func SortitionEpoch(blockNumber uint64) uint64 {
+	return blockNumber / SortitionEpochLength
+}
+
+// SortitionEpochStartBlock returns the first block number of the given sortition epoch.
+func SortitionEpochStartBlock(epoch uint64) uint64 {
+	return epoch * SortitionEpochLength
+}
+
+// IsSortitionEpochStart checks if the given block number is at the start of a sortition epoch.
+func IsSortitionEpochStart(blockNumber uint64) bool {
+	return blockNumber%SortitionEpochLength == 0
+}
+
+// GetSortitionSeedBlockNumber returns the block number to use as seed for sortition.
+// Uses a block SortitionSeedLookback blocks before the sortition epoch boundary to resist fork attacks.
+func GetSortitionSeedBlockNumber(blockNumber uint64) uint64 {
+	epoch := SortitionEpoch(blockNumber)
+
+	if epoch == 0 {
+		return 0 // Genesis block for epoch 0
+	}
+
+	// Seed block = sortition epoch start - SortitionSeedLookback
+	epochStart := SortitionEpochStartBlock(epoch)
+	if epochStart > SortitionSeedLookback {
+		return epochStart - SortitionSeedLookback
+	}
+	return 0 // Fallback to genesis if not enough blocks
+}
+
+// GetSortitionSeedHash returns the hash to use as VRF input for sortition.
+// This retrieves the block hash from SortitionSeedLookback blocks before the sortition epoch boundary.
+func (ecc *ECC) GetSortitionSeedHash(chain consensus.ChainHeaderReader, blockNumber uint64) common.Hash {
+	seedBlockNum := GetSortitionSeedBlockNumber(blockNumber)
+
+	header := chain.GetHeaderByNumber(seedBlockNum)
+	if header == nil {
+		// Fallback to genesis if header not found
+		header = chain.GetHeaderByNumber(0)
+		if header == nil {
+			return common.Hash{}
+		}
+	}
+	return header.Hash()
+}
+
+// IsEligibleForSortitionEpoch checks if this miner is eligible to mine in the sortition epoch
+// containing the given block number, using VRF-based sortition.
+func (ecc *ECC) IsEligibleForSortitionEpoch(chain consensus.ChainHeaderReader, blockNumber uint64) (bool, []byte, error) {
+	ecc.lock.Lock()
+	defer ecc.lock.Unlock()
+
+	// Check if VRF keys are configured
+	if len(ecc.vrfPublicKey) == 0 || len(ecc.vrfPrivateKey) == 0 {
+		return false, nil, errors.New("VRF keys not configured")
+	}
+
+	// Get the seed hash for this sortition epoch
+	seedHash := ecc.GetSortitionSeedHash(chain, blockNumber)
+	if seedHash == (common.Hash{}) {
+		return false, nil, errors.New("failed to get sortition seed hash")
+	}
+
+	sortitionEpoch := SortitionEpoch(blockNumber)
+	seedBlockNum := GetSortitionSeedBlockNumber(blockNumber)
+
+	// Generate VRF proof using the seed hash
+	proof, hash, err := Prove(ecc.vrfPublicKey, ecc.vrfPrivateKey, seedHash.Bytes())
+	if err != nil {
+		return false, nil, fmt.Errorf("failed to generate VRF proof: %w", err)
+	}
+
+	// Check if the proof passes sortition
+	eligible := CheckSortition(proof)
+
+	log.Info("🎲 Sortition epoch check",
+		"sortitionEpoch", sortitionEpoch,
+		"blockNumber", blockNumber,
+		"seedBlock", seedBlockNum,
+		"seedHash", seedHash.Hex()[:16]+"...",
+		"vrfHash", hex.EncodeToString(hash)[:16]+"...",
+		"eligible", eligible)
+
+	return eligible, proof, nil
+}
 
 // Config are the configuration parameters of the ethash.
 type Config struct {
@@ -103,7 +202,7 @@ type verifyParameters struct {
 //	floatMatrix [][]float64
 //)
 
-//RunOptimizedConcurrencyLDPC use goroutine for mining block
+// RunOptimizedConcurrencyLDPC use goroutine for mining block
 func RunOptimizedConcurrencyLDPC(header *types.Header, hash []byte) (bool, []int, []int, uint64, []byte) {
 	//Need to set difficulty before running LDPC
 	// Number of goroutines : 500, Number of attempts : 50000 Not bad
@@ -194,7 +293,7 @@ func RunOptimizedConcurrencyLDPC_Seoul(header *types.Header, hash []byte) (bool,
 	return flag, hashVector, outputWord, LDPCNonce, digest
 }
 
-//MakeDecision check outputWord is valid or not using colInRow
+// MakeDecision check outputWord is valid or not using colInRow
 func MakeDecision(header *types.Header, colInRow [][]int, outputWord []int) (bool, int) {
 	parameters, difficultyLevel := setParameters(header)
 	for i := 0; i < parameters.m; i++ {
@@ -223,7 +322,7 @@ func MakeDecision(header *types.Header, colInRow [][]int, outputWord []int) (boo
 	return false, numOfOnes
 }
 
-//MakeDecision check outputWord is valid or not using colInRow
+// MakeDecision check outputWord is valid or not using colInRow
 func MakeDecision_Seoul(header *types.Header, colInRow [][]int, outputWord []int) (bool, int) {
 	parameters, _ := setParameters_Seoul(header)
 	for i := 0; i < parameters.m; i++ {
@@ -242,8 +341,8 @@ func MakeDecision_Seoul(header *types.Header, colInRow [][]int, outputWord []int
 		numOfOnes += val
 	}
 
-	if numOfOnes >= parameters.n/4  &&
-		numOfOnes <= parameters.n/4 * 3 {
+	if numOfOnes >= parameters.n/4 &&
+		numOfOnes <= parameters.n/4*3 {
 		//fmt.Printf("hamming weight: %v\n", numOfOnes)
 		return true, numOfOnes
 	}
