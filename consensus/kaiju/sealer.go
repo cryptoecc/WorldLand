@@ -99,6 +99,10 @@ func (ecc *ECC) Seal(chain consensus.ChainHeaderReader, block *types.Block, resu
 	header.VRFPublicKey = ecc.vrfPublicKey
 	ecc.lock.Unlock()
 
+	// Create a new block with the VRF fields set
+	// This ensures the mining functions receive a block with VRF proof and public key
+	block = block.WithSeal(header)
+
 	// Create a runner and the multiple search threads it directs
 	abort := make(chan struct{})
 
