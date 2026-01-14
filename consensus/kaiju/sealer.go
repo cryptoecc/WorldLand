@@ -69,6 +69,12 @@ func (ecc *ECC) Seal(chain consensus.ChainHeaderReader, block *types.Block, resu
 		return ecc.shared.Seal(chain, block, results, stop)
 	}
 
+	coinbase := block.Header().Coinbase
+	if err := ecc.EnsureVRFKeys(coinbase); err != nil {
+		log.Error("Failed to ensure VRF keys for mining", "coinbase", coinbase, "err", err)
+		return err
+	}
+
 	// Check sortition epoch eligibility before starting to mine
 	blockNumber := block.Header().Number.Uint64()
 	sortitionEpoch := SortitionEpoch(blockNumber)

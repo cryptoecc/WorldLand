@@ -174,7 +174,8 @@ func (ecc *ECC) verifyHeaderWorker(chain consensus.ChainHeaderReader, headers []
 	if parent == nil {
 		return consensus.ErrUnknownAncestor
 	}
-	return ecc.verifyHeader(chain, headers[index], parent, false, seals[index], unixNow)
+	// Pass the current batch of headers to verifyHeader for VRF seed lookup
+	return ecc.verifyHeaderWithBatch(chain, headers[index], parent, false, seals[index], unixNow, headers)
 }
 
 // VerifyUncles verifies that the given block's uncles conform to the consensus
@@ -241,6 +242,77 @@ func (ecc *ECC) VerifyUncles(chain consensus.ChainReader, block *types.Block) er
 	return nil
 }
 
+// verifyHeaderWithBatch checks whether a header conforms to the consensus rules,
+// with access to the current batch of headers being verified for seed block lookup.
+func (ecc *ECC) verifyHeaderWithBatch(chain consensus.ChainHeaderReader, header, parent *types.Header, uncle bool, seal bool, unixNow int64, batchHeaders []*types.Header) error {
+	// Ensure that the header's extra-data section is of a reasonable size
+	if uint64(len(header.Extra)) > params.MaximumExtraDataSize {
+		return fmt.Errorf("extra-data too long: %d > %d", len(header.Extra), params.MaximumExtraDataSize)
+	}
+	// Verify the header's timestamp
+	if !uncle {
+		if header.Time > uint64(unixNow+allowedFutureBlockTimeSeconds) {
+			return consensus.ErrFutureBlock
+		}
+	}
+
+	if header.Time <= parent.Time {
+		return errZeroBlockTime
+	}
+	// Verify the block's difficulty based in it's timestamp and parent's difficulty
+	expectDiff := ecc.CalcDifficulty(chain, header.Time, parent)
+
+	if expectDiff.Cmp(header.Difficulty) != 0 {
+		return fmt.Errorf("invalid ecc difficulty: have %v, want %v", header.Difficulty, expectDiff)
+	}
+
+	// Verify that the gas limit is <= 2^63-1
+	if header.GasLimit > params.MaxGasLimit {
+		return fmt.Errorf("invalid gasLimit: have %v, max %v", header.GasLimit, params.MaxGasLimit)
+	}
+	// Verify that the gasUsed is <= gasLimit
+	if header.GasUsed > header.GasLimit {
+		return fmt.Errorf("invalid gasUsed: have %d, gasLimit %d", header.GasUsed, header.GasLimit)
+	}
+
+	// Verify the block's gas usage and (if applicable) verify the base fee.
+	if !chain.Config().IsLondon(header.Number) {
+		// Verify BaseFee not present before EIP-1559 fork.
+		if header.BaseFee != nil {
+			return fmt.Errorf("invalid baseFee before fork: have %d, expected 'nil'", header.BaseFee)
+		}
+		if err := misc.VerifyGaslimit(parent.GasLimit, header.GasLimit); err != nil {
+			return err
+		}
+	} else if err := misc.VerifyEip1559Header(chain.Config(), parent, header); err != nil {
+		// Verify the header's EIP-1559 attributes.
+		return err
+	}
+	// Verify that the block number is parent's +1
+	if diff := new(big.Int).Sub(header.Number, parent.Number); diff.Cmp(big.NewInt(1)) != 0 {
+		return consensus.ErrInvalidNumber
+	}
+	// Verify the engine specific seal securing the block
+	if seal {
+		if err := ecc.verifySeal(chain, header); err != nil {
+			return err
+		}
+		// Verify VRF proof for epoch sortition (only when verifying full seal)
+		// Pass the batch headers for seed block lookup
+		if err := ecc.verifyVRFProofWithBatch(chain, header, batchHeaders); err != nil {
+			return err
+		}
+	}
+	// If all checks passed, validate any special fields for hard forks
+	if err := misc.VerifyDAOHeaderExtraData(chain.Config(), header); err != nil {
+		return err
+	}
+	if err := misc.VerifyForkHashes(chain.Config(), header, uncle); err != nil {
+		return err
+	}
+	return nil
+}
+
 // verifyHeader checks whether a header conforms to the consensus rules of the
 // stock Ethereum ecc engine.
 // See YP section 4.3.4. "Block Header Validity"
@@ -300,10 +372,11 @@ func (ecc *ECC) verifyHeader(chain consensus.ChainHeaderReader, header, parent *
 		if err := ecc.verifySeal(chain, header); err != nil {
 			return err
 		}
-	}
-	// Verify VRF proof for epoch sortition
-	if err := ecc.verifyVRFProof(chain, header); err != nil {
-		return err
+		// Verify VRF proof for epoch sortition (only when verifying full seal)
+		// VRF verification requires historical seed blocks which may not be available during header-only sync
+		if err := ecc.verifyVRFProof(chain, header); err != nil {
+			return err
+		}
 	}
 	// If all checks passed, validate any special fields for hard forks
 	if err := misc.VerifyDAOHeaderExtraData(chain.Config(), header); err != nil {
@@ -430,6 +503,56 @@ func (ecc *ECC) verifySeal(chain consensus.ChainHeaderReader, header *types.Head
 	if flag == false {
 		return errInvalidPoW
 	}
+
+	return nil
+}
+
+// verifyVRFProofWithBatch checks whether the VRF proof in the header is valid for epoch sortition,
+// with access to the current batch of headers being verified for seed block lookup.
+func (ecc *ECC) verifyVRFProofWithBatch(chain consensus.ChainHeaderReader, header *types.Header, batchHeaders []*types.Header) error {
+
+	if header.VRFProof == nil || len(header.VRFProof) == 0 {
+		return errors.New("VRF proof is required but missing")
+	}
+
+	// VRF public key must be present
+	if header.VRFPublicKey == nil || len(header.VRFPublicKey) == 0 {
+		return errors.New("VRF public key is required but missing")
+	}
+
+	// Get the sortition seed hash for verification
+	// This uses the same seed block that the miner used for sortition
+	blockNumber := header.Number.Uint64()
+	seedHash := ecc.GetSortitionSeedHashWithBatch(chain, blockNumber, batchHeaders)
+	if seedHash == (common.Hash{}) {
+		log.Warn("❌ VRF verification failed - seed block unavailable",
+			"block", blockNumber,
+			"seedBlock", GetSortitionSeedBlockNumber(blockNumber),
+			"currentHead", chain.CurrentHeader().Number,
+			"batchSize", len(batchHeaders))
+		return errors.New("failed to get sortition seed hash for verification")
+	}
+
+	// Verify the VRF proof using the sortition seed hash as the message
+	valid, err := Verify(header.VRFPublicKey, header.VRFProof, seedHash.Bytes())
+	if err != nil {
+		return fmt.Errorf("VRF verification error: %w", err)
+	}
+	if !valid {
+		return errors.New("invalid VRF proof for sortition seed")
+	}
+
+	// Check if the VRF proof passes sortition criteria
+	if !CheckSortition(header.VRFProof) {
+		return errors.New("VRF proof does not pass sortition criteria")
+	}
+
+	sortitionEpoch := SortitionEpoch(blockNumber)
+	seedBlockNum := GetSortitionSeedBlockNumber(blockNumber)
+	log.Debug("✅ VRF sortition verified",
+		"sortitionEpoch", sortitionEpoch,
+		"block", blockNumber,
+		"seedBlock", seedBlockNum)
 
 	return nil
 }

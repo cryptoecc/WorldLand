@@ -153,9 +153,8 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 	}
 
 	//engine := ethconfig.CreateConsensusEngine(stack, &ethashConfig, cliqueConfig, eccpowConfig, config.Miner.Notify, config.Miner.Noverify, chainDb)
-	engine := ethconfig.CreateConsensusEngine(stack, &ethashConfig, cliqueConfig, &eccpowConfig, &kaijuConfig ,config.Miner.Notify, config.Miner.Noverify, chainDb)
+	engine := ethconfig.CreateConsensusEngine(stack, &ethashConfig, cliqueConfig, &eccpowConfig, &kaijuConfig, config.Miner.Notify, config.Miner.Noverify, chainDb)
 
-	
 	eth := &Ethereum{
 		config:            config,
 		merger:            consensus.NewMerger(chainDb),
@@ -479,7 +478,7 @@ func (s *Ethereum) StartMining(threads int) error {
 			if err != nil {
 				log.Warn("Failed to derive VRF keys for sortition", "err", err)
 			} else {
-				kaijuEngine.SetVRFKeys(pubKey, privKey)
+				kaijuEngine.SetVRFKeys(pubKey, privKey, eb)
 				log.Info("✅ VRF keys configured for sortition", "coinbase", eb)
 			}
 		} else {

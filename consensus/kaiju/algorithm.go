@@ -43,8 +43,9 @@ type ECC struct {
 	fakeDelay time.Duration // Time delay to sleep for before returning from verify
 
 	// VRF key pair for proof generation and verification
-	vrfPublicKey  []byte // ED25519 public key (32 bytes)
-	vrfPrivateKey []byte // ED25519 private key (64 bytes)
+	vrfPublicKey  []byte         // ED25519 public key (32 bytes)
+	vrfPrivateKey []byte         // ED25519 private key (64 bytes)
+	vrfCoinbase   common.Address // Coinbase address used to derive current VRF keys
 
 	lock      sync.Mutex // Ensures thread safety for the in-memory caches and mining fields
 	closeOnce sync.Once  // Ensures exit channel will not be closed twice.
@@ -100,19 +101,55 @@ func GetSortitionSeedBlockNumber(blockNumber uint64) uint64 {
 	return 0 // Fallback to genesis if not enough blocks
 }
 
+// GetSortitionSeedHashWithBatch returns the hash to use as VRF input for sortition,
+// checking the current batch of headers being verified first before querying the chain.
+func (ecc *ECC) GetSortitionSeedHashWithBatch(chain consensus.ChainHeaderReader, blockNumber uint64, batchHeaders []*types.Header) common.Hash {
+	seedBlockNum := GetSortitionSeedBlockNumber(blockNumber)
+
+	// First, check if the seed block is in the current batch being verified
+	// This handles the case where we're verifying blocks in parallel and the seed
+	// block hasn't been imported into the chain yet but is in the same batch
+	if batchHeaders != nil {
+		for _, h := range batchHeaders {
+			if h.Number.Uint64() == seedBlockNum {
+				log.Debug("✅ Seed block found in current batch",
+					"forBlock", blockNumber,
+					"seedBlock", seedBlockNum,
+					"seedHash", h.Hash().Hex()[:16]+"...")
+				return h.Hash()
+			}
+		}
+	}
+
+	// Seed block not in batch, fall back to chain lookup
+	return ecc.GetSortitionSeedHash(chain, blockNumber)
+}
+
 // GetSortitionSeedHash returns the hash to use as VRF input for sortition.
 // This retrieves the block hash from SortitionSeedLookback blocks before the sortition epoch boundary.
 func (ecc *ECC) GetSortitionSeedHash(chain consensus.ChainHeaderReader, blockNumber uint64) common.Hash {
 	seedBlockNum := GetSortitionSeedBlockNumber(blockNumber)
 
+	currentHead := chain.CurrentHeader()
+	log.Info("🔍 Getting sortition seed",
+		"forBlock", blockNumber,
+		"needSeedBlock", seedBlockNum,
+		"currentHead", currentHead.Number.Uint64(),
+		"currentHash", currentHead.Hash().Hex()[:16]+"...")
+
 	header := chain.GetHeaderByNumber(seedBlockNum)
 	if header == nil {
-		// Fallback to genesis if header not found
-		header = chain.GetHeaderByNumber(0)
-		if header == nil {
-			return common.Hash{}
-		}
+		log.Warn("❌ SEED BLOCK MISSING",
+			"forBlock", blockNumber,
+			"needSeedBlock", seedBlockNum,
+			"currentHead", currentHead.Number.Uint64())
+		// Return empty hash - seed block must be available for verification
+		return common.Hash{}
 	}
+
+	log.Info("✅ Seed block found",
+		"seedBlock", seedBlockNum,
+		"seedHash", header.Hash().Hex()[:16]+"...")
 	return header.Hash()
 }
 
@@ -538,7 +575,7 @@ func (ecc *ECC) SetThreads(threads int) {
 // SetVRFKeys sets the VRF key pair used for proof generation
 // The publicKey should be 32 bytes (ED25519 public key)
 // The privateKey should be 64 bytes (ED25519 private key)
-func (ecc *ECC) SetVRFKeys(publicKey, privateKey []byte) {
+func (ecc *ECC) SetVRFKeys(publicKey, privateKey []byte, coinbase common.Address) {
 	ecc.lock.Lock()
 	defer ecc.lock.Unlock()
 
@@ -547,6 +584,37 @@ func (ecc *ECC) SetVRFKeys(publicKey, privateKey []byte) {
 
 	ecc.vrfPrivateKey = make([]byte, len(privateKey))
 	copy(ecc.vrfPrivateKey, privateKey)
+
+	ecc.vrfCoinbase = coinbase
+}
+
+// EnsureVRFKeys checks if VRF keys match the given coinbase, and re-derives them if not.
+// This should be called before mining to ensure keys are in sync with current coinbase.
+func (ecc *ECC) EnsureVRFKeys(coinbase common.Address) error {
+	ecc.lock.Lock()
+	defer ecc.lock.Unlock()
+
+	// Check if keys already match this coinbase
+	if ecc.vrfCoinbase == coinbase && len(ecc.vrfPublicKey) > 0 && len(ecc.vrfPrivateKey) > 0 {
+		return nil // Already up to date
+	}
+
+	// Need to derive new keys
+	pubKey, privKey, err := DeriveVRFKeys(coinbase, nil)
+	if err != nil {
+		return fmt.Errorf("failed to derive VRF keys: %w", err)
+	}
+
+	ecc.vrfPublicKey = make([]byte, len(pubKey))
+	copy(ecc.vrfPublicKey, pubKey)
+
+	ecc.vrfPrivateKey = make([]byte, len(privKey))
+	copy(ecc.vrfPrivateKey, privKey)
+
+	ecc.vrfCoinbase = coinbase
+
+	log.Info("🔑 VRF keys re-derived for coinbase change", "coinbase", coinbase)
+	return nil
 }
 
 // Hashrate implements PoW, returning the measured rate of the search invocations
