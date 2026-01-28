@@ -138,22 +138,22 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 	ethashConfig := config.Ethash
 	ethashConfig.NotifyFull = config.Miner.NotifyFull
 
-	eccpowConfig := config.Eccpow
+	eccpowConfig, err := core.LoadEccpowConfig(chainDb, config.Genesis)
+	if err != nil {
+		return nil, err
+	}
 
-	kaijuConfig := config.Kaiju
-	/*
-		eccpowConfig, err := core.LoadEccpowConfig(chainDb, config.Genesis)
-		if err != nil {
-			return nil, err
-		}*/
+	kaijuConfig, err := core.LoadKaijuConfig(chainDb, config.Genesis)
+	if err != nil {
+		return nil, err
+	}
 
 	cliqueConfig, err := core.LoadCliqueConfig(chainDb, config.Genesis)
 	if err != nil {
 		return nil, err
 	}
 
-	//engine := ethconfig.CreateConsensusEngine(stack, &ethashConfig, cliqueConfig, eccpowConfig, config.Miner.Notify, config.Miner.Noverify, chainDb)
-	engine := ethconfig.CreateConsensusEngine(stack, &ethashConfig, cliqueConfig, &eccpowConfig, &kaijuConfig, config.Miner.Notify, config.Miner.Noverify, chainDb)
+	engine := ethconfig.CreateConsensusEngine(stack, &ethashConfig, cliqueConfig, eccpowConfig, kaijuConfig, config.Miner.Notify, config.Miner.Noverify, chainDb)
 
 	eth := &Ethereum{
 		config:            config,

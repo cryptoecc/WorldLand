@@ -224,7 +224,7 @@ type Config struct {
 }
 
 // CreateConsensusEngine creates a consensus engine for the given chain configuration.
-func CreateConsensusEngine(stack *node.Node, ethashConfig *ethash.Config, cliqueConfig *params.CliqueConfig, eccpowConfig *eccpow.Config, kaijuConfig *kaiju.Config,  notify []string, noverify bool, db ethdb.Database) consensus.Engine {
+func CreateConsensusEngine(stack *node.Node, ethashConfig *ethash.Config, cliqueConfig *params.CliqueConfig, eccpowConfig *params.EccpowConfig, kaijuConfig *params.KaijuConfig,  notify []string, noverify bool, db ethdb.Database) consensus.Engine {
 	// If proof-of-authority is requested, set it up
 	var engine consensus.Engine
 	if cliqueConfig != nil {
@@ -234,6 +234,7 @@ func CreateConsensusEngine(stack *node.Node, ethashConfig *ethash.Config, clique
 		log.Info("Creating Kaiju consensus engine")
 	} else if eccpowConfig != nil {
 		engine = eccpow.New(eccpow.Config{}, notify, noverify)
+		log.Info("Creating ECCPoW consensus engine")
 	} else {
 		switch ethashConfig.PowMode {
 		case ethash.ModeFake:

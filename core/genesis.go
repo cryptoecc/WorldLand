@@ -418,7 +418,37 @@ func LoadEccpowConfig(db ethdb.Database, genesis *Genesis) (*params.EccpowConfig
 	return nil, nil
 }
 
-
+func LoadKaijuConfig(db ethdb.Database, genesis *Genesis) (*params.KaijuConfig, error) {
+	// Load the stored chain config from the database. It can be nil
+	// in case the database is empty. Notably, we only care about the
+	// chain config corresponds to the canonical chain.
+	stored := rawdb.ReadCanonicalHash(db, 0)
+	if stored != (common.Hash{}) {
+		storedcfg := rawdb.ReadChainConfig(db, stored)
+		if storedcfg != nil {
+			return storedcfg.Kaiju, nil
+		}
+	}
+	// Load the kaiju config from the provided genesis specification.
+	if genesis != nil {
+		// Reject invalid genesis spec without valid chain config
+		if genesis.Config == nil {
+			return nil, errGenesisNoConfig
+		}
+		// If the canonical genesis header is present, but the chain
+		// config is missing(initialize the empty leveldb with an
+		// external ancient chain segment), ensure the provided genesis
+		// is matched.
+		if stored != (common.Hash{}) && genesis.ToBlock().Hash() != stored {
+			return nil, &GenesisMismatchError{stored, genesis.ToBlock().Hash()}
+		}
+		return genesis.Config.Kaiju, nil
+	}
+	// There is no stored chain config and no new config provided,
+	// In this case the default chain config(mainnet) will be used,
+	// namely ethash is the specified consensus engine, return nil.
+	return nil, nil
+}
 
 func (g *Genesis) configOrDefault(ghash common.Hash) *params.ChainConfig {
 	switch {

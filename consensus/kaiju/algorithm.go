@@ -430,9 +430,6 @@ func MakeDecision_Seoul(header *types.Header, colInRow [][]int, outputWord []int
 // packages.
 
 func New(config Config, notify []string, noverify bool) *ECC {
-
-	println("starting kaiju engine")
-
 	if config.Log == nil {
 		config.Log = log.Root()
 	}
