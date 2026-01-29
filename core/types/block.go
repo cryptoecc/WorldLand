@@ -85,11 +85,15 @@ type Header struct {
 	Nonce       BlockNonce     `json:"nonce"`
 
 	// BaseFee was added by EIP-1559 and is ignored in legacy headers.
-	BaseFee *big.Int           `json:"baseFeePerGas" rlp:"optional"`
+	BaseFee *big.Int `json:"baseFeePerGas" rlp:"optional"`
 	// Codeword was added by Worldlandhardfork and is ignored in legacy headers.
-	Codeword []byte            `json:"codeword" rlp:"optional"`
+	Codeword []byte `json:"codeword" rlp:"optional"`
 	// CodeLength was added by Worldlandhardfork and is ignored in legacy headers.
-	CodeLength uint64          `json:"codelength" rlp:"optional"`
+	CodeLength uint64 `json:"codelength" rlp:"optional"`
+	// VRFProof was added for VRF verification and is ignored in legacy headers.
+	VRFProof []byte `json:"vrfProof" rlp:"optional"`
+	// VRFPublicKey was added for VRF verification and is ignored in legacy headers.
+	VRFPublicKey []byte `json:"vrfPublicKey" rlp:"optional"`
 
 	/*
 		TODO (MariusVanDerWijden) Add this field once needed
@@ -258,6 +262,14 @@ func CopyHeader(h *Header) *Header {
 		cpy.Extra = make([]byte, len(h.Extra))
 		copy(cpy.Extra, h.Extra)
 	}
+	if len(h.VRFProof) > 0 {
+		cpy.VRFProof = make([]byte, len(h.VRFProof))
+		copy(cpy.VRFProof, h.VRFProof)
+	}
+	if len(h.VRFPublicKey) > 0 {
+		cpy.VRFPublicKey = make([]byte, len(h.VRFPublicKey))
+		copy(cpy.VRFPublicKey, h.VRFPublicKey)
+	}
 	/*if len(h.Codeword) > 0 {
 		cpy.Codeword = make([]byte, len(h.Codeword))
 		copy(cpy.Codeword, h.Codeword)
@@ -321,15 +333,29 @@ func (b *Block) ReceiptHash() common.Hash { return b.header.ReceiptHash }
 func (b *Block) UncleHash() common.Hash   { return b.header.UncleHash }
 func (b *Block) Extra() []byte            { return common.CopyBytes(b.header.Extra) }
 
-func (b *Block) Codeword() []byte { 
+func (b *Block) Codeword() []byte {
 	if b.header.Codeword == nil {
 		return nil
 	}
-	return common.CopyBytes(b.header.Codeword) 
+	return common.CopyBytes(b.header.Codeword)
 }
 
-func (b *Block) CodeLength() uint64 { 
+func (b *Block) CodeLength() uint64 {
 	return b.header.CodeLength
+}
+
+func (b *Block) VRFProof() []byte {
+	if b.header.VRFProof == nil {
+		return nil
+	}
+	return common.CopyBytes(b.header.VRFProof)
+}
+
+func (b *Block) VRFPublicKey() []byte {
+	if b.header.VRFPublicKey == nil {
+		return nil
+	}
+	return common.CopyBytes(b.header.VRFPublicKey)
 }
 
 func (b *Block) BaseFee() *big.Int {

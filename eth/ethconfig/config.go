@@ -31,6 +31,7 @@ import (
 	"github.com/cryptoecc/WorldLand/consensus/clique"
 	"github.com/cryptoecc/WorldLand/consensus/eccpow"
 	"github.com/cryptoecc/WorldLand/consensus/ethash"
+	"github.com/cryptoecc/WorldLand/consensus/kaiju"
 	"github.com/cryptoecc/WorldLand/core"
 	"github.com/cryptoecc/WorldLand/eth/downloader"
 	"github.com/cryptoecc/WorldLand/eth/gasprice"
@@ -185,6 +186,7 @@ type Config struct {
 	// Ethash options
 	Eccpow eccpow.Config
 
+	Kaiju kaiju.Config
 
 	// Transaction pool options
 	TxPool core.TxPoolConfig
@@ -222,13 +224,17 @@ type Config struct {
 }
 
 // CreateConsensusEngine creates a consensus engine for the given chain configuration.
-func CreateConsensusEngine(stack *node.Node, ethashConfig *ethash.Config, cliqueConfig *params.CliqueConfig, eccpowConfig *eccpow.Config, notify []string, noverify bool, db ethdb.Database) consensus.Engine {
+func CreateConsensusEngine(stack *node.Node, ethashConfig *ethash.Config, cliqueConfig *params.CliqueConfig, eccpowConfig *params.EccpowConfig, kaijuConfig *params.KaijuConfig,  notify []string, noverify bool, db ethdb.Database) consensus.Engine {
 	// If proof-of-authority is requested, set it up
 	var engine consensus.Engine
 	if cliqueConfig != nil {
 		engine = clique.New(cliqueConfig, db)
+	} else if kaijuConfig != nil {
+		engine = kaiju.New(kaiju.Config{}, notify, noverify)
+		log.Info("Creating Kaiju consensus engine")
 	} else if eccpowConfig != nil {
 		engine = eccpow.New(eccpow.Config{}, notify, noverify)
+		log.Info("Creating ECCPoW consensus engine")
 	} else {
 		switch ethashConfig.PowMode {
 		case ethash.ModeFake:
@@ -253,7 +259,7 @@ func CreateConsensusEngine(stack *node.Node, ethashConfig *ethash.Config, clique
 		engine.(*ethash.Ethash).SetThreads(-1) // Disable CPU mining
 	}
 	//return engine , add worldland hardfork consensus.
-	
+
 	//return beacon.New(engine, eccpow.New(eccpow.Config{}, nil, false))
 
 	return beacon.New(engine)

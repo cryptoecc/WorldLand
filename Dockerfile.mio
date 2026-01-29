@@ -1,0 +1,88 @@
+# --------------------------------------------
+# WorldLand Mio Testnet Node Dockerfile
+# --------------------------------------------
+# This specialized Dockerfile builds and runs a WorldLand node
+# preconfigured for the Mio testnet network.
+# --------------------------------------------
+
+ARG COMMIT=""
+ARG VERSION=""
+ARG BUILDNUM=""
+
+# --------------------------------------------
+# Stage 1: Build WorldLand binaries in a Go builder container
+# --------------------------------------------
+FROM golang:1.24-alpine AS builder
+
+# Install required build tools
+RUN apk add --no-cache gcc musl-dev linux-headers git
+
+# Set working directory
+WORKDIR /worldland
+
+# Copy Go module files and download dependencies
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy the full project source
+COPY . .
+
+# Build the WorldLand binary (statically linked)
+RUN go run build/ci.go install -static ./cmd/worldland
+
+# --------------------------------------------
+# Stage 2: Create a minimal runtime container with the built binary
+# --------------------------------------------
+FROM alpine:latest
+
+# Install runtime dependencies
+RUN apk add --no-cache ca-certificates curl jq
+
+# Create data directory for blockchain data
+RUN mkdir -p /worldland/data
+
+# Copy the compiled worldland binary
+COPY --from=builder /worldland/build/bin/worldland /usr/local/bin/
+
+# Expose standard blockchain ports
+# 8545: HTTP-RPC server
+# 8546: WS-RPC server
+# 30303: P2P network (TCP & UDP)
+EXPOSE 8545 8546 30303 30303/udp
+
+# Set data directory as volume
+VOLUME ["/worldland/data"]
+
+# Default entrypoint runs worldland with Mio testnet flag
+# Users can override CMD to add additional flags
+ENTRYPOINT ["worldland"]
+
+# Default command runs Mio testnet with common settings
+# --mio: Use Mio testnet network
+# --datadir: Store blockchain data in /worldland/data
+# --http: Enable HTTP-RPC server
+# --http.addr: Listen on all interfaces
+# --http.corsdomain: Allow CORS from any origin (adjust for production)
+# --http.vhosts: Allow any virtual host (adjust for production)
+CMD ["--mio", \
+     "--datadir", "/worldland/data", \
+     "--http", \
+     "--http.addr", "0.0.0.0", \
+     "--http.api", "eth,net,web3,txpool", \
+     "--http.corsdomain", "*", \
+     "--http.vhosts", "*"]
+
+# --------------------------------------------
+# Metadata labels for programmatic image tracking
+# --------------------------------------------
+ARG COMMIT=""
+ARG VERSION=""
+ARG BUILDNUM=""
+
+LABEL org.opencontainers.image.title="WorldLand Mio Testnet Node"
+LABEL org.opencontainers.image.description="WorldLand blockchain node for Mio testnet network"
+LABEL org.opencontainers.image.source="https://github.com/cryptoecc/WorldLand"
+LABEL commit="$COMMIT"
+LABEL version="$VERSION"
+LABEL buildnum="$BUILDNUM"
+LABEL network="mio-testnet"

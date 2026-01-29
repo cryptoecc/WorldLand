@@ -31,6 +31,7 @@ import (
 	"github.com/cryptoecc/WorldLand/consensus"
 	"github.com/cryptoecc/WorldLand/consensus/beacon"
 	"github.com/cryptoecc/WorldLand/consensus/clique"
+	"github.com/cryptoecc/WorldLand/consensus/kaiju"
 	"github.com/cryptoecc/WorldLand/core"
 	"github.com/cryptoecc/WorldLand/core/bloombits"
 	"github.com/cryptoecc/WorldLand/core/rawdb"
@@ -137,21 +138,22 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 	ethashConfig := config.Ethash
 	ethashConfig.NotifyFull = config.Miner.NotifyFull
 
-	eccpowConfig := config.Eccpow
-	/*
 	eccpowConfig, err := core.LoadEccpowConfig(chainDb, config.Genesis)
 	if err != nil {
 		return nil, err
-	}*/
+	}
+
+	kaijuConfig, err := core.LoadKaijuConfig(chainDb, config.Genesis)
+	if err != nil {
+		return nil, err
+	}
 
 	cliqueConfig, err := core.LoadCliqueConfig(chainDb, config.Genesis)
 	if err != nil {
 		return nil, err
 	}
-	
-	//engine := ethconfig.CreateConsensusEngine(stack, &ethashConfig, cliqueConfig, eccpowConfig, config.Miner.Notify, config.Miner.Noverify, chainDb)
-	engine := ethconfig.CreateConsensusEngine(stack, &ethashConfig, cliqueConfig, &eccpowConfig, config.Miner.Notify, config.Miner.Noverify, chainDb)
 
+	engine := ethconfig.CreateConsensusEngine(stack, &ethashConfig, cliqueConfig, eccpowConfig, kaijuConfig, config.Miner.Notify, config.Miner.Noverify, chainDb)
 
 	eth := &Ethereum{
 		config:            config,
@@ -449,6 +451,40 @@ func (s *Ethereum) StartMining(threads int) error {
 			log.Error("Cannot start mining without etherbase", "err", err)
 			return fmt.Errorf("etherbase missing: %v", err)
 		}
+
+		// Setup VRF keys for sortition (if using kaiju consensus)
+		log.Info("Checking consensus engine type for VRF setup", "type", fmt.Sprintf("%T", s.engine))
+
+		// Try to get Kaiju engine (may be wrapped in Beacon)
+		var kaijuEngine *kaiju.ECC
+		if eccEngine, ok := s.engine.(*kaiju.ECC); ok {
+			kaijuEngine = eccEngine
+		} else if beaconEngine, ok := s.engine.(*beacon.Beacon); ok {
+			// Kaiju might be wrapped in Beacon, try to unwrap
+			innerEngine := beaconEngine.InnerEngine()
+			log.Info("Beacon engine detected, checking inner engine", "innerType", fmt.Sprintf("%T", innerEngine))
+
+			if innerEcc, ok := innerEngine.(*kaiju.ECC); ok {
+				kaijuEngine = innerEcc
+				log.Info("✅ Found Kaiju engine wrapped in Beacon")
+			} else {
+				log.Warn("Inner engine is not Kaiju", "innerType", fmt.Sprintf("%T", innerEngine))
+			}
+		}
+
+		if kaijuEngine != nil {
+			// Derive VRF keys from coinbase address
+			pubKey, privKey, err := kaiju.DeriveVRFKeys(eb, nil)
+			if err != nil {
+				log.Warn("Failed to derive VRF keys for sortition", "err", err)
+			} else {
+				kaijuEngine.SetVRFKeys(pubKey, privKey, eb)
+				log.Info("✅ VRF keys configured for sortition", "coinbase", eb)
+			}
+		} else {
+			log.Info("Not using Kaiju consensus, skipping VRF setup", "engine", fmt.Sprintf("%T", s.engine))
+		}
+
 		var cli *clique.Clique
 		if c, ok := s.engine.(*clique.Clique); ok {
 			cli = c

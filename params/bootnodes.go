@@ -68,7 +68,6 @@ var RinkebyBootnodes = []string{
 	"enode://b6b28890b006743680c52e64e0d16db57f28124885595fa03a562be1d2bf0f3a1da297d56b13da25fb992888fd556d4c1a27b1f39d531bde7de1921c90061cc6@159.89.28.211:30303", // AKASHA
 }
 
-
 // SeoulBootnodes are the enode URLs of the P2P bootstrap nodes running on the
 // Seoul network.
 var SeoulBootnodes = []string{
@@ -96,6 +95,13 @@ var GwangjuBootnodes = []string{
 	"enode://4f4be8c67ac7b1fcfceb21a374a62c68f7f0528988f3b3d322bd6d94aeb745667f0c8e847881bbaeeba52eb1d346166301243222d5e22dd16ce70c57214178ca@43.200.52.189:30303",
 	"enode://bbbf2734ce12b7aa258dd1e92e9cec7ea6b2ca6766f5741272c934904f3d182e08688aef3a368684c4c06b6adc2711c51e517bb9033824b2816c9d038c256cf9@3.36.252.183:30303",
 	"enode://911771c7894782bced03377a13f1d8a4e8450d05e03eabab1d6daae70e1b91b6074c346d42ac4fae53d98d273efedd6cdd37d2f6715302de9736b29cc4aa7da2@13.250.246.202:30303",
+}
+
+// Mio Bootnodes are the enode URLs of the P2P bootstrap nodes running on the
+// Mio network.
+var MioBootnodes = []string{
+	"enode://645ec480c608530a68097c0df4aa754d55666d69d7d1b3f58ff3e1ace6c2d58172a8c8664661bf448d4306eff8862773f7c7a5ac497b008d2ea4c7257c45d352@3.34.200.40:30303",
+	"enode://a7ce7263293907cd317a24ba912bdd1302656d4c7e51260ea67ae159658214ea34a74dfbab647cd199a26b116a2c10be5c8ccbfb267d17449f74f088470e47a9@3.34.200.40:30303",
 }
 
 // GoerliBootnodes are the enode URLs of the P2P bootstrap nodes running on the
@@ -150,6 +156,8 @@ func KnownDNSNetwork(genesis common.Hash, protocol string) string {
 	switch genesis {
 	case GwangjuGenesisHash:
 		net = "gwangju"
+	case MioGenesisHash:
+		net = "mio"
 	case SeoulGenesisHash:
 		net = "seoul"
 	default:

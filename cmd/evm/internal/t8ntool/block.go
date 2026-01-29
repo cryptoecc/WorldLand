@@ -57,6 +57,8 @@ type header struct {
 	BaseFee     *big.Int          `json:"baseFeePerGas" rlp:"optional"`
 	Codeword    []byte            `json:"codeword" rlp:"optional"`
 	CodeLength  uint64            `json:"codelength" rlp:"optional"`
+	VRFProof    []byte            `json:"vrfProof" rlp:"optional"`
+	VRFPublicKey []byte            `json:"vrfPublicKey" rlp:"optional"`
 }
 
 type headerMarshaling struct {
@@ -164,6 +166,12 @@ func (i *bbInput) ToBlock() *types.Block {
 	}
 	if header.CodeLength != 0 {
 		header.CodeLength = i.Header.CodeLength
+	}
+	if header.VRFProof != nil {
+		header.VRFProof = i.Header.VRFProof
+	}
+	if header.VRFPublicKey != nil {
+		header.VRFPublicKey = i.Header.VRFPublicKey
 	}
 
 	return types.NewBlockWithHeader(header).WithBody(i.Txs, i.Ommers)

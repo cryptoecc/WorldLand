@@ -418,7 +418,37 @@ func LoadEccpowConfig(db ethdb.Database, genesis *Genesis) (*params.EccpowConfig
 	return nil, nil
 }
 
-
+func LoadKaijuConfig(db ethdb.Database, genesis *Genesis) (*params.KaijuConfig, error) {
+	// Load the stored chain config from the database. It can be nil
+	// in case the database is empty. Notably, we only care about the
+	// chain config corresponds to the canonical chain.
+	stored := rawdb.ReadCanonicalHash(db, 0)
+	if stored != (common.Hash{}) {
+		storedcfg := rawdb.ReadChainConfig(db, stored)
+		if storedcfg != nil {
+			return storedcfg.Kaiju, nil
+		}
+	}
+	// Load the kaiju config from the provided genesis specification.
+	if genesis != nil {
+		// Reject invalid genesis spec without valid chain config
+		if genesis.Config == nil {
+			return nil, errGenesisNoConfig
+		}
+		// If the canonical genesis header is present, but the chain
+		// config is missing(initialize the empty leveldb with an
+		// external ancient chain segment), ensure the provided genesis
+		// is matched.
+		if stored != (common.Hash{}) && genesis.ToBlock().Hash() != stored {
+			return nil, &GenesisMismatchError{stored, genesis.ToBlock().Hash()}
+		}
+		return genesis.Config.Kaiju, nil
+	}
+	// There is no stored chain config and no new config provided,
+	// In this case the default chain config(mainnet) will be used,
+	// namely ethash is the specified consensus engine, return nil.
+	return nil, nil
+}
 
 func (g *Genesis) configOrDefault(ghash common.Hash) *params.ChainConfig {
 	switch {
@@ -440,6 +470,8 @@ func (g *Genesis) configOrDefault(ghash common.Hash) *params.ChainConfig {
 		return params.SeoulChainConfig
 	case ghash == params.GwangjuGenesisHash:
 		return params.GwangjuChainConfig
+	case ghash == params.MioGenesisHash:
+		return params.MioChainConfig
 	default:
 		return params.AllEthashProtocolChanges
 	}
@@ -627,6 +659,23 @@ func DefaultGwangjuGenesisBlock() *Genesis {
 		},
 	}
 }
+
+func DefaultMioGenesisBlock() *Genesis {
+	balanceStr := "40996800000000000000000000"
+	balance, _ := new(big.Int).SetString(balanceStr, 10)
+	return &Genesis{
+		Config:     params.MioChainConfig,
+		Nonce:      10396,
+		Timestamp:  1767262724,
+		ExtraData:  []byte("Worldland Mio"),
+		GasLimit:   30000000,
+		Difficulty: big.NewInt(1023),
+		Alloc:      map[common.Address]GenesisAccount{
+			common.HexToAddress("0x8C98EAeA19F1B9B36af58e7d7E78e0F1df8138f0"): { Balance: balance },
+		},
+	}
+}
+
 
 // DeveloperGenesisBlock returns the 'geth --dev' genesis block.
 func DeveloperGenesisBlock(period uint64, gasLimit uint64, faucet common.Address) *Genesis {
