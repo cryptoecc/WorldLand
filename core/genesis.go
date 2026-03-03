@@ -450,6 +450,38 @@ func LoadKaijuConfig(db ethdb.Database, genesis *Genesis) (*params.KaijuConfig, 
 	return nil, nil
 }
 
+func LoadEccbetaConfig(db ethdb.Database, genesis *Genesis) (*params.EccbetaConfig, error) {
+	// Load the stored chain config from the database. It can be nil
+	// in case the database is empty. Notably, we only care about the
+	// chain config corresponds to the canonical chain.
+	stored := rawdb.ReadCanonicalHash(db, 0)
+	if stored != (common.Hash{}) {
+		storedcfg := rawdb.ReadChainConfig(db, stored)
+		if storedcfg != nil {
+			return storedcfg.Eccbeta, nil
+		}
+	}
+	// Load the eccbeta config from the provided genesis specification.
+	if genesis != nil {
+		// Reject invalid genesis spec without valid chain config
+		if genesis.Config == nil {
+			return nil, errGenesisNoConfig
+		}
+		// If the canonical genesis header is present, but the chain
+		// config is missing(initialize the empty leveldb with an
+		// external ancient chain segment), ensure the provided genesis
+		// is matched.
+		if stored != (common.Hash{}) && genesis.ToBlock().Hash() != stored {
+			return nil, &GenesisMismatchError{stored, genesis.ToBlock().Hash()}
+		}
+		return genesis.Config.Eccbeta, nil
+	}
+	// There is no stored chain config and no new config provided,
+	// In this case the default chain config(mainnet) will be used,
+	// namely ethash is the specified consensus engine, return nil.
+	return nil, nil
+}
+
 func (g *Genesis) configOrDefault(ghash common.Hash) *params.ChainConfig {
 	switch {
 	case g != nil:
@@ -472,6 +504,8 @@ func (g *Genesis) configOrDefault(ghash common.Hash) *params.ChainConfig {
 		return params.GwangjuChainConfig
 	case ghash == params.MioGenesisHash:
 		return params.MioChainConfig
+	case ghash == params.BetaGenesisHash:
+		return params.BetaChainConfig
 	default:
 		return params.AllEthashProtocolChanges
 	}
@@ -676,6 +710,23 @@ func DefaultMioGenesisBlock() *Genesis {
 	}
 }
 
+// DefaultBetaGenesisBlock returns the Beta network genesis block.
+func DefaultBetaGenesisBlock() *Genesis {
+	// Initial allocation for Beta network
+	balanceStr := "40996800000000000000000000"
+	balance, _ := new(big.Int).SetString(balanceStr, 10)
+	return &Genesis{
+		Config:     params.BetaChainConfig,
+		Nonce:      91510,
+		Timestamp:  1709568000, // Placeholder: Update with actual launch timestamp
+		ExtraData:  []byte("Worldland Beta"),
+		GasLimit:   30000000,
+		Difficulty: big.NewInt(1023),
+		Alloc: map[common.Address]GenesisAccount{
+			common.HexToAddress("0x8C98EAeA19F1B9B36af58e7d7E78e0F1df8138f0"): {Balance: balance},
+		},
+	}
+}
 
 // DeveloperGenesisBlock returns the 'geth --dev' genesis block.
 func DeveloperGenesisBlock(period uint64, gasLimit uint64, faucet common.Address) *Genesis {

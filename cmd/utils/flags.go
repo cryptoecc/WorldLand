@@ -166,6 +166,10 @@ var (
 		Name:  "mio",
 		Usage: "Mio network: Error-Correction Codes Proof-of-Work Test Network",
 	}
+	BetaFlag = &cli.BoolFlag{
+		Name:  "beta",
+		Usage: "Beta network: ECCBeta Proof-of-Work Network",
+	}
 
 	// Dev mode
 	DeveloperFlag = &cli.BoolFlag{
@@ -1002,6 +1006,7 @@ var (
 		KilnFlag,*/
 		GwangjuFlag,
 		MioFlag,
+		BetaFlag,
 	}
 	// NetworkFlags is the flag group of all built-in supported networks.
 	NetworkFlags = append([]cli.Flag{
@@ -1047,6 +1052,9 @@ func MakeDataDir(ctx *cli.Context) string {
 		}
 		if ctx.Bool(MioFlag.Name) {
 			return filepath.Join(path, "mio")
+		}
+		if ctx.Bool(BetaFlag.Name) {
+			return filepath.Join(path, "beta")
 		}
 		return path
 	}
@@ -1110,7 +1118,8 @@ func setBootstrapNodes(ctx *cli.Context, cfg *p2p.Config) {
 		urls = params.GwangjuBootnodes
 	case ctx.Bool(MioFlag.Name):
 		urls = params.MioBootnodes
-
+	case ctx.Bool(BetaFlag.Name):
+		urls = params.BetaBootnodes
 	}
 
 	// don't apply defaults if BootstrapNodes is already set
@@ -1575,6 +1584,8 @@ func SetDataDir(ctx *cli.Context, cfg *node.Config) {
 		cfg.DataDir = filepath.Join(node.DefaultDataDir(), "gwangju")
 	case ctx.Bool(MioFlag.Name) && cfg.DataDir == node.DefaultDataDir():
 		cfg.DataDir = filepath.Join(node.DefaultDataDir(), "mio")
+	case ctx.Bool(BetaFlag.Name) && cfg.DataDir == node.DefaultDataDir():
+		cfg.DataDir = filepath.Join(node.DefaultDataDir(), "beta")
 	}
 
 }
@@ -1968,6 +1979,13 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 		cfg.Genesis = core.DefaultMioGenesisBlock()
 		SetDNSDiscoveryDefaults(cfg, params.MioGenesisHash)
 
+	case ctx.Bool(BetaFlag.Name):
+		if !ctx.IsSet(NetworkIdFlag.Name) {
+			cfg.NetworkId = 91510
+		}
+		cfg.Genesis = core.DefaultBetaGenesisBlock()
+		SetDNSDiscoveryDefaults(cfg, params.BetaGenesisHash)
+
 	case ctx.Bool(DeveloperFlag.Name):
 		if !ctx.IsSet(NetworkIdFlag.Name) {
 			cfg.NetworkId = 1337
@@ -2225,6 +2243,8 @@ func MakeGenesis(ctx *cli.Context) *core.Genesis {
 		genesis = core.DefaultGwangjuGenesisBlock()
 	case ctx.Bool(MioFlag.Name):
 		genesis = core.DefaultMioGenesisBlock()
+	case ctx.Bool(BetaFlag.Name):
+		genesis = core.DefaultBetaGenesisBlock()
 	case ctx.Bool(DeveloperFlag.Name):
 		Fatalf("Developer chains are ephemeral")
 	}
@@ -2249,13 +2269,17 @@ func MakeChain(ctx *cli.Context, stack *node.Node) (*core.BlockChain, ethdb.Data
 	if err != nil {
 		Fatalf("%v", err)
 	}
+	eccbetaConfig, err := core.LoadEccbetaConfig(chainDb, gspec)
+	if err != nil {
+		Fatalf("%v", err)
+	}
 
 	ethashConfig := ethconfig.Defaults.Ethash
 	if ctx.Bool(FakePoWFlag.Name) {
 		ethashConfig.PowMode = ethash.ModeFake
 	}
 
-	engine := ethconfig.CreateConsensusEngine(stack, &ethashConfig, cliqueConfig, eccpowConfig, kaijuConfig, nil, false, chainDb)
+	engine := ethconfig.CreateConsensusEngine(stack, &ethashConfig, cliqueConfig, eccpowConfig, kaijuConfig, eccbetaConfig, nil, false, chainDb)
 	if gcmode := ctx.String(GCModeFlag.Name); gcmode != "full" && gcmode != "archive" {
 		Fatalf("--%s must be either 'full' or 'archive'", GCModeFlag.Name)
 	}
