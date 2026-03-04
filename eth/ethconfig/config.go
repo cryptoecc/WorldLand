@@ -29,6 +29,7 @@ import (
 	"github.com/cryptoecc/WorldLand/consensus"
 	"github.com/cryptoecc/WorldLand/consensus/beacon"
 	"github.com/cryptoecc/WorldLand/consensus/clique"
+	"github.com/cryptoecc/WorldLand/consensus/eccbeta"
 	"github.com/cryptoecc/WorldLand/consensus/eccpow"
 	"github.com/cryptoecc/WorldLand/consensus/ethash"
 	"github.com/cryptoecc/WorldLand/consensus/kaiju"
@@ -224,11 +225,14 @@ type Config struct {
 }
 
 // CreateConsensusEngine creates a consensus engine for the given chain configuration.
-func CreateConsensusEngine(stack *node.Node, ethashConfig *ethash.Config, cliqueConfig *params.CliqueConfig, eccpowConfig *params.EccpowConfig, kaijuConfig *params.KaijuConfig,  notify []string, noverify bool, db ethdb.Database) consensus.Engine {
+func CreateConsensusEngine(stack *node.Node, ethashConfig *ethash.Config, cliqueConfig *params.CliqueConfig, eccpowConfig *params.EccpowConfig, kaijuConfig *params.KaijuConfig, eccbetaConfig *params.EccbetaConfig, notify []string, noverify bool, db ethdb.Database) consensus.Engine {
 	// If proof-of-authority is requested, set it up
 	var engine consensus.Engine
 	if cliqueConfig != nil {
 		engine = clique.New(cliqueConfig, db)
+	} else if eccbetaConfig != nil {
+		engine = eccbeta.New(eccbeta.Config{}, notify, noverify)
+		log.Info("Creating ECCBeta consensus engine")
 	} else if kaijuConfig != nil {
 		engine = kaiju.New(kaiju.Config{}, notify, noverify)
 		log.Info("Creating Kaiju consensus engine")

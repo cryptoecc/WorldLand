@@ -299,6 +299,9 @@ func prepare(ctx *cli.Context) {
 	case ctx.IsSet(utils.MioFlag.Name):
 		log.Info("Starting Worldland on Mio testnet ...")
 
+	case ctx.IsSet(utils.BetaFlag.Name):
+		log.Info("Starting Worldland on Beta network ...")
+
 	case ctx.IsSet(utils.DeveloperFlag.Name):
 		log.Info("Starting Worldland in ephemeral dev mode...")
 		log.Warn(`You are running Worldland in --dev mode. Please note the following:
