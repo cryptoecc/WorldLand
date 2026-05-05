@@ -1,0 +1,45 @@
+// Trimmed WorldBet ABI for read/write calls used by the UI.
+export const WORLDBET_ABI = [
+  { type: "function", name: "bet", stateMutability: "payable",
+    inputs: [
+      { name: "asset", type: "bytes32" },
+      { name: "dir", type: "uint8" },
+      { name: "ref", type: "address" },
+    ], outputs: [] },
+  { type: "function", name: "claim", stateMutability: "nonpayable",
+    inputs: [{ name: "asset", type: "bytes32" }, { name: "id", type: "uint64" }], outputs: [] },
+  { type: "function", name: "claimReferral", stateMutability: "nonpayable", inputs: [], outputs: [] },
+  { type: "function", name: "burn", stateMutability: "nonpayable", inputs: [], outputs: [] },
+  { type: "function", name: "currentRoundId", stateMutability: "view",
+    inputs: [], outputs: [{ type: "uint64" }] },
+  { type: "function", name: "totalBurned", stateMutability: "view",
+    inputs: [], outputs: [{ type: "uint256" }] },
+  { type: "function", name: "pendingBurn", stateMutability: "view",
+    inputs: [], outputs: [{ type: "uint256" }] },
+  { type: "function", name: "prizePool", stateMutability: "view",
+    inputs: [], outputs: [{ type: "uint256" }] },
+  { type: "function", name: "referralBalance", stateMutability: "view",
+    inputs: [{ type: "address" }], outputs: [{ type: "uint256" }] },
+  { type: "function", name: "roundView", stateMutability: "view",
+    inputs: [
+      { name: "asset", type: "bytes32" },
+      { name: "id", type: "uint64" },
+      { name: "user", type: "address" },
+    ],
+    outputs: [
+      { name: "r", type: "tuple", components: [
+        { name: "upPool", type: "uint128" },
+        { name: "downPool", type: "uint128" },
+        { name: "lockTime", type: "uint64" },
+        { name: "closeTime", type: "uint64" },
+        { name: "lockPrice", type: "uint128" },
+        { name: "closePrice", type: "uint128" },
+        { name: "status", type: "uint8" },
+      ]},
+      { name: "b", type: "tuple", components: [
+        { name: "upAmount", type: "uint128" },
+        { name: "downAmount", type: "uint128" },
+        { name: "claimed", type: "bool" },
+      ]},
+    ] },
+];

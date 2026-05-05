@@ -1,0 +1,18 @@
+{
+  "name": "worldbet",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "compile": "hardhat compile",
+    "deploy:seoul": "hardhat run scripts/deploy.js --network seoul",
+    "deploy:gwangju": "hardhat run scripts/deploy.js --network gwangju",
+    "oracle": "node oracle/index.js"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "hardhat": "^2.22.0"
+  },
+  "dependencies": {
+    "ethers": "^6.13.0"
+  }
+}
