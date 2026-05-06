@@ -278,7 +278,7 @@ did_register(pkVRF, popSig) -> tx hash  (helper that constructs registration tx)
 
 ### 5.1 Unit Tests
 
-- **VRF library**: RFC 9381 Appendix A.4 test vectors. 100% coverage of `Prove()`, `Verify()`, error paths (invalid points, malformed proofs, wrong scheme byte).
+- **VRF library**: RFC 9381 Appendix B.3 test vectors (ECVRF-EDWARDS25519-SHA512-TAI). 100% coverage of `Prove()`, `Verify()`, error paths (invalid points, malformed proofs, wrong scheme byte).
 - **Registry contract**: Foundry tests for register/unstake/withdraw/double-registration/wrong-stake-amount/PoP-failure/operator-mismatch.
 - **VCT threshold**: deterministic given fixed (sk, H_{h-1}, h, p). 1e6 random samples confirm bias matches p within ±0.1%.
 - **Header RLP**: round-trip for both legacy and post-RockiesV1 headers; cross-version decoder selects correct path via chain config.
@@ -446,8 +446,8 @@ Each PR description must reference the spec section(s) it implements. Reviewers 
 
 For VRF, **fork from a mature existing implementation rather than write from scratch**. Recommended sources, in order of preference:
 
-1. Algorand `go-algorand/crypto/vrf/` — production-grade, RFC 9381 compliant, BSD-licensed.
-2. Filecoin `go-filecoin` VRF utilities.
+1. ProtonMail `github.com/ProtonMail/go-ecvrf` — pure-Go ECVRF-EDWARDS25519-SHA512-TAI implementation matching §3's chosen suite (suite_string = 0x03). MIT-licensed. (Algorand's `go-algorand/crypto/vrf/` was previously listed here but was rejected because it wraps libsodium's draft-03 ELL2 variant (suite_string = 0x04), which is incompatible with the TAI suite mandated by §3.)
+2. Filecoin `go-filecoin` VRF utilities (cross-validation reference).
 3. ChainLink VRF (Solidity-side reference for cross-validation).
 
 Document the exact upstream commit hash forked from in `crypto/vrf/ecvrf/UPSTREAM.md`.
