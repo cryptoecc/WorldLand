@@ -24,10 +24,13 @@ package ecvrf
 import (
 	"bytes"
 	"crypto/ed25519"
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"strings"
 	"testing"
+
+	"filippo.io/edwards25519"
 )
 
 // rfcVector groups the published RFC 9381 §B.3 fields plus the intermediate
@@ -111,6 +114,21 @@ func mustHex(t *testing.T, s string) []byte {
 		t.Fatalf("decoding %q: %v", s, err)
 	}
 	return b
+}
+
+// invalidPointBytes returns 32 bytes that filippo.io/edwards25519 SetBytes
+// rejects (no valid x coordinate). About half of random 32-byte strings
+// are non-curve, so a deterministic seeded search terminates quickly.
+func invalidPointBytes(t *testing.T) []byte {
+	t.Helper()
+	for seed := uint32(0); seed < 1024; seed++ {
+		h := sha256.Sum256([]byte{byte(seed), byte(seed >> 8), byte(seed >> 16), byte(seed >> 24)})
+		if _, err := (&edwards25519.Point{}).SetBytes(h[:]); err != nil {
+			return append([]byte{}, h[:]...)
+		}
+	}
+	t.Fatal("no invalid Ed25519 point encoding found in 1024 SHA-256 candidates")
+	return nil
 }
 
 // TestRFC9381_B3_Prove verifies the canonical Prove() output of every vector
@@ -366,8 +384,7 @@ func TestNewPublicKey_BadLength(t *testing.T) {
 }
 
 func TestNewPublicKey_NotOnCurve(t *testing.T) {
-	// 32-byte string that is not a valid Ed25519 point encoding.
-	bad := bytes.Repeat([]byte{0xff}, 32)
+	bad := invalidPointBytes(t)
 	if _, err := NewPublicKey(bad); !errors.Is(err, ErrInvalidPublicKey) {
 		t.Errorf("non-curve point err = %v, want ErrInvalidPublicKey", err)
 	}
@@ -386,9 +403,7 @@ func TestVerify_BadProofLength(t *testing.T) {
 func TestVerify_BadGammaPoint(t *testing.T) {
 	pk, _ := NewPublicKey(mustHex(t, rfc9381B3[0].pk))
 	bad := make([]byte, ProofSize)
-	for i := range bad[:32] {
-		bad[i] = 0xff
-	}
+	copy(bad[:32], invalidPointBytes(t))
 	if _, err := pk.Verify([]byte("alpha"), bad); !errors.Is(err, ErrInvalidProofPoint) {
 		t.Errorf("bad gamma err = %v, want ErrInvalidProofPoint", err)
 	}
@@ -417,9 +432,7 @@ func TestProofToHash_BadLength(t *testing.T) {
 
 func TestProofToHash_BadGamma(t *testing.T) {
 	bad := make([]byte, ProofSize)
-	for i := range bad[:32] {
-		bad[i] = 0xff
-	}
+	copy(bad[:32], invalidPointBytes(t))
 	if _, err := ProofToHash(bad); !errors.Is(err, ErrInvalidProofPoint) {
 		t.Errorf("bad gamma err = %v, want ErrInvalidProofPoint", err)
 	}
