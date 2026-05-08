@@ -1,0 +1,26 @@
+{
+  "name": "worldbet",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "compile": "hardhat compile",
+    "deploy:seoul": "hardhat run scripts/deploy.js --network seoul",
+    "deploy:gwangju": "hardhat run scripts/deploy.js --network gwangju",
+    "deploy:bsc": "hardhat run scripts/deploy.js --network bsc",
+    "deploy:bscTestnet": "hardhat run scripts/deploy.js --network bscTestnet",
+    "deploy-mock-wl:bscTestnet": "hardhat run scripts/deploy-mock-wl.js --network bscTestnet",
+    "inspect:bscTestnet": "hardhat run scripts/inspect-rounds.js --network bscTestnet",
+    "inspect:bsc": "hardhat run scripts/inspect-rounds.js --network bsc",
+    "oracle": "node oracle/index.js",
+    "keeper": "node keeper/index.js",
+    "check:cex": "node scripts/check-cex.js",
+    "test": "forge test"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "hardhat": "^2.22.0"
+  },
+  "dependencies": {
+    "ethers": "^6.13.0"
+  }
+}
